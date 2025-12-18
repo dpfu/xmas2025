@@ -1,0 +1,425 @@
+import * as THREE from "three";
+import { TREE_MODEL_URL, GIFT_MODEL_URL } from "../config/assets";
+import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { createSnowLayer, type SnowLayer } from "./snow";
+
+const BASE_STAGE = {
+  groundY: 0.28,
+  treeX: 0.45,
+  treeZ: 0,
+  giftOffset: new THREE.Vector3(0.6, 0.18, 0.45),
+};
+
+export type SceneHandles = {
+  renderer: THREE.WebGLRenderer;
+  scene: THREE.Scene;
+  camera: THREE.PerspectiveCamera;
+  treeGroup: THREE.Group;
+  giftGroup: THREE.Group;
+  setSpinAmount: (a: number) => void;
+  showGift: () => void;
+  hideGift: () => void;
+  setSize: (w: number, h: number) => void;
+  toggleDebug?: (on: boolean) => void;
+  update: (dt: number) => void;
+};
+
+export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandles> {
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setClearColor(0x000000, 0);
+
+  const scene = new THREE.Scene();
+  const snowLayers: SnowLayer[] = [];
+  const debugHelpers: THREE.Object3D[] = [];
+  let debugVisible = false;
+
+  const isPortrait = window.innerHeight > window.innerWidth;
+  const stage = {
+    ...BASE_STAGE,
+    treeX: isPortrait ? 0.25 : BASE_STAGE.treeX,
+  };
+
+  const camera = new THREE.PerspectiveCamera(isPortrait ? 36 : 32, 1, 0.1, 100);
+  camera.position.set(0, 1.2, 4.2);
+
+  const key = new THREE.DirectionalLight(0xddeeff, 1.05);
+  key.position.set(3, 6, 2);
+  scene.add(key);
+
+  const fill = new THREE.DirectionalLight(0xcfe6ff, 0.35);
+  fill.position.set(-4, 2.5, -2);
+  scene.add(fill);
+
+  const amb = new THREE.AmbientLight(0xffffff, 0.45);
+  scene.add(amb);
+
+  const spot = new THREE.PointLight(0xffe7d6, 0.35, 18);
+  spot.position.set(0, 2.2, -3.5);
+  scene.add(spot);
+
+  // Snow podium
+  const podium = new THREE.Mesh(
+    new THREE.CylinderGeometry(2.1, 2.2, 0.24, 64),
+    new THREE.MeshStandardMaterial({ color: 0xeef2f8, roughness: 0.96, metalness: 0.0 })
+  );
+  podium.position.y = stage.groundY - 0.14;
+  scene.add(podium);
+
+  const top = new THREE.Mesh(
+    new THREE.CylinderGeometry(2.0, 2.0, 0.05, 64),
+    new THREE.MeshStandardMaterial({ color: 0xf9fbff, roughness: 1.0 })
+  );
+  top.position.y = stage.groundY - 0.05;
+  scene.add(top);
+
+  const rim = new THREE.Mesh(
+    new THREE.TorusGeometry(2.02, 0.03, 10, 80),
+    new THREE.MeshStandardMaterial({ color: 0xdfe4ed, roughness: 1.0 })
+  );
+  rim.rotation.x = Math.PI / 2;
+  rim.position.y = stage.groundY - 0.05;
+  scene.add(rim);
+
+  const treeGroup = new THREE.Group();
+  treeGroup.position.set(stage.treeX, stage.groundY, stage.treeZ);
+  treeGroup.scale.setScalar(1.05);
+  scene.add(treeGroup);
+
+  const shadowTex = new THREE.CanvasTexture((() => {
+    const c = document.createElement("canvas");
+    c.width = 256; c.height = 256;
+    const ctx = c.getContext("2d");
+    if (!ctx) return c;
+    const g = ctx.createRadialGradient(128, 128, 8, 128, 128, 120);
+    g.addColorStop(0, "rgba(0,0,0,0.22)");
+    g.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, 256, 256);
+    return c;
+  })());
+  shadowTex.colorSpace = THREE.SRGBColorSpace;
+  const shadow = new THREE.Mesh(
+    new THREE.PlaneGeometry(3.2, 3.2),
+    new THREE.MeshBasicMaterial({ map: shadowTex, transparent: true, depthWrite: false, opacity: 0.45 })
+  );
+  shadow.rotation.x = -Math.PI / 2;
+  shadow.position.set(stage.treeX, stage.groundY + 0.002, stage.treeZ);
+  scene.add(shadow);
+
+  const loader = new GLTFLoader();
+  const jiggleTargets: { obj: THREE.Object3D; baseY: number; baseRotZ: number; phase: number }[] = [];
+  const baseCamPos = camera.position.clone();
+  const revealCamPos = new THREE.Vector3(0, 1.1, 2.8);
+  const lookTarget = new THREE.Vector3(stage.treeX, 1.1, stage.treeZ);
+
+  function frameObject(obj: THREE.Object3D) {
+    const box = new THREE.Box3().setFromObject(obj);
+    const size = new THREE.Vector3();
+    box.getSize(size);
+    const center = new THREE.Vector3();
+    box.getCenter(center);
+
+    const padding = isPortrait ? 1.2 : 1.1;
+    const height = size.y * padding;
+    const vFov = (camera.fov * Math.PI) / 180;
+    const dist = Math.max((height / 2) / Math.tan(vFov / 2), isPortrait ? 3.9 : 3.6);
+    camera.position.z = THREE.MathUtils.clamp(dist, isPortrait ? 3.9 : 3.6, isPortrait ? 5.3 : 5.0);
+    camera.position.x = 0;
+    camera.position.y = center.y + 0.2;
+  }
+
+  // Load tree model
+  try {
+    const gltf = await loader.loadAsync(TREE_MODEL_URL);
+    const model = gltf.scene;
+
+    // Center & scale roughly
+    const box = new THREE.Box3().setFromObject(model);
+    const size = new THREE.Vector3();
+    box.getSize(size);
+    const center = new THREE.Vector3();
+    box.getCenter(center);
+
+    model.position.sub(center);
+    const targetHeight = 2.2;
+    const scale = targetHeight / Math.max(size.y, 0.001);
+    model.scale.setScalar(scale);
+
+    model.position.y = targetHeight / 2 - 0.05;
+    treeGroup.add(model);
+
+    model.traverse((o) => {
+      // Collect meshes for subtle jiggle when shaking; heuristic keeps it lightweight
+      const mesh = o as THREE.Mesh;
+      if ((mesh as any).isMesh) {
+        jiggleTargets.push({
+          obj: mesh,
+          baseY: mesh.position.y,
+          baseRotZ: mesh.rotation.z,
+          phase: Math.random() * Math.PI * 2,
+        });
+      }
+    });
+
+    frameObject(treeGroup);
+  } catch (e) {
+    // If no model is present yet, show a placeholder cone
+    const placeholder = new THREE.Mesh(
+      new THREE.ConeGeometry(1, 2.4, 10),
+      new THREE.MeshStandardMaterial({ color: 0x2aa84a, roughness: 1 })
+    );
+    placeholder.position.y = 1.2;
+    treeGroup.add(placeholder);
+    frameObject(treeGroup);
+  }
+
+  const giftGroup = new THREE.Group();
+  giftGroup.position.set(stage.treeX, stage.groundY + 0.18, stage.treeZ);
+  giftGroup.scale.setScalar(0);
+  scene.add(giftGroup);
+
+  const giftLight = new THREE.PointLight(0xfff2cc, 0, 5);
+  giftLight.position.set(0, 1.2, 1.2);
+  scene.add(giftLight);
+
+  // Snow layers (respect reduced motion)
+  const prefersReducedMotion =
+    typeof window !== "undefined" &&
+    window.matchMedia &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  const snowScale = prefersReducedMotion ? 0.5 : 1;
+
+  const snowConfigs = [
+    { count: Math.floor(140 * snowScale), size: [1.6, 3], speed: 0.12, z: -6, opacity: 0.35 },
+    { count: Math.floor(260 * snowScale), size: [2.5, 5], speed: 0.18, z: -2, opacity: 0.55 },
+    { count: Math.floor(80 * snowScale), size: [4, 7], speed: 0.2, z: 1.5, opacity: 0.32 },
+  ];
+
+  for (const cfg of snowConfigs) {
+    const layer = createSnowLayer({
+      count: cfg.count,
+      areaRadius: 4.2,
+      areaHeight: 6,
+      fallSpeed: cfg.speed,
+      sizeMin: cfg.size[0],
+      sizeMax: cfg.size[1],
+      windAmp: 0.12,
+      opacity: cfg.opacity,
+      zPos: cfg.z,
+    });
+    snowLayers.push(layer);
+    scene.add(layer.points);
+  }
+
+  // Load gift model
+  let giftHalfHeight = 0.35;
+
+  try {
+    const gltfGift = await loader.loadAsync(GIFT_MODEL_URL);
+    const gift = gltfGift.scene;
+
+    // Center & scale
+    const box = new THREE.Box3().setFromObject(gift);
+    const size = new THREE.Vector3();
+    box.getSize(size);
+    const center = new THREE.Vector3();
+    box.getCenter(center);
+    gift.position.sub(center);
+
+    const targetHeight = 0.7;
+    const s = targetHeight / Math.max(size.y, 0.001);
+    gift.scale.setScalar(s);
+
+    giftGroup.add(gift);
+
+    const gBox = new THREE.Box3().setFromObject(gift);
+    const gSize = new THREE.Vector3();
+    gBox.getSize(gSize);
+    giftHalfHeight = gSize.y / 2;
+  } catch (e) {
+    // Fallback placeholder if the gift model is missing
+    const ph = new THREE.Mesh(
+      new THREE.BoxGeometry(0.6, 0.6, 0.6),
+      new THREE.MeshStandardMaterial({ color: 0x44aa55, roughness: 0.9 })
+    );
+    giftGroup.add(ph);
+  }
+
+  // gift placement synced to tree position
+  function updateGiftAnchor() {
+    giftGroup.position.copy(new THREE.Vector3(stage.treeX, stage.groundY, stage.treeZ)).add(
+      new THREE.Vector3(BASE_STAGE.giftOffset.x, BASE_STAGE.giftOffset.y, BASE_STAGE.giftOffset.z)
+    );
+    giftGroup.position.y = stage.groundY + giftHalfHeight;
+  }
+  updateGiftAnchor();
+
+  const setSize = (w: number, h: number) => {
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+    renderer.setSize(w, h, false);
+    if (treeGroup.children.length > 0) frameObject(treeGroup);
+  };
+
+  let autoRotate = 0;
+  let giftVisible = false;
+  let giftT = 0;
+  let camLerp = 0;
+  let spinAmount = 0;
+  const setSpinAmount = (a: number) => {
+    spinAmount = THREE.MathUtils.clamp(a, 0, 1);
+  };
+
+  const showGift = () => {
+    giftVisible = true;
+    giftT = 0;
+    camLerp = 0;
+    treeGroup.visible = false;
+    updateGiftAnchor();
+  };
+
+  const hideGift = () => {
+    giftVisible = false;
+    giftGroup.scale.setScalar(0);
+    treeGroup.visible = true;
+  };
+
+  // Debug overlay: toggled with "d"
+  function setDebug(on: boolean) {
+    debugVisible = on;
+    for (const h of debugHelpers) {
+      h.visible = debugVisible;
+    }
+  }
+
+  // Build debug helpers
+  const addDebugHelpers = () => {
+    // Crosshair at look target
+    const crossGeo = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(-0.3, 0, 0),
+      new THREE.Vector3(0.3, 0, 0),
+      new THREE.Vector3(0, -0.3, 0),
+      new THREE.Vector3(0, 0.3, 0),
+    ]);
+    const crossMat = new THREE.LineBasicMaterial({ color: 0xffdd55, depthTest: false });
+    const cross = new THREE.LineSegments(crossGeo, crossMat);
+    cross.position.copy(lookTarget);
+    debugHelpers.push(cross);
+    scene.add(cross);
+
+    // Crosshair label
+    const makeLabel = (text: string, pos: THREE.Vector3) => {
+      const c = document.createElement("canvas");
+      c.width = 256; c.height = 64;
+      const ctx = c.getContext("2d");
+      if (ctx) {
+        ctx.fillStyle = "rgba(0,0,0,0.7)";
+        ctx.fillRect(0, 0, c.width, c.height);
+        ctx.fillStyle = "#ffeaa7";
+        ctx.font = "16px 'Segoe UI'";
+        ctx.fillText(text, 10, 24);
+      }
+      const tex = new THREE.CanvasTexture(c);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      const spriteMat = new THREE.SpriteMaterial({ map: tex, depthTest: false, depthWrite: false, transparent: true });
+      const sprite = new THREE.Sprite(spriteMat);
+      sprite.scale.set(0.9, 0.25, 1);
+      sprite.position.copy(pos).add(new THREE.Vector3(0.2, 0.3, 0));
+      debugHelpers.push(sprite);
+      scene.add(sprite);
+    };
+    makeLabel(`Target (${lookTarget.x.toFixed(2)}, ${lookTarget.y.toFixed(2)}, ${lookTarget.z.toFixed(2)})`, lookTarget);
+
+    // Ground line
+    const groundMat = new THREE.LineBasicMaterial({ color: 0x99c2ff, depthTest: false });
+    const groundGeo = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(-5, stage.groundY, 0),
+      new THREE.Vector3(5, stage.groundY, 0),
+    ]);
+    const groundLine = new THREE.Line(groundGeo, groundMat);
+    debugHelpers.push(groundLine);
+    scene.add(groundLine);
+    makeLabel(`Ground y=${stage.groundY.toFixed(2)}`, new THREE.Vector3(stage.treeX, stage.groundY + 0.15, stage.treeZ));
+
+    // Safe frame (top margin)
+    const frameMat = new THREE.LineBasicMaterial({ color: 0xff88aa, depthTest: false });
+    const frameGeo = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(-1, 1.6, -2),
+      new THREE.Vector3(1, 1.6, -2),
+    ]);
+    const safeFrame = new THREE.Line(frameGeo, frameMat);
+    debugHelpers.push(safeFrame);
+    scene.add(safeFrame);
+    makeLabel("Safe top", new THREE.Vector3(1, 1.6, -2));
+
+    // Bounding box helper for tree
+    const boxHelper = new THREE.BoxHelper(treeGroup, 0x55ff88);
+    (boxHelper.material as THREE.Material).depthTest = false;
+    debugHelpers.push(boxHelper);
+    scene.add(boxHelper);
+
+    // Hide by default
+    debugHelpers.forEach((h) => (h.visible = false));
+  };
+
+  addDebugHelpers();
+
+  const update = (dt: number) => {
+    // dt is seconds
+    treeGroup.rotation.y += autoRotate * dt;
+    autoRotate *= 0.95;
+
+    if (spinAmount > 0 && jiggleTargets.length > 0) {
+      const t = performance.now() * 0.001;
+      for (const it of jiggleTargets) {
+        it.obj.rotation.z = it.baseRotZ + Math.sin(t * 10 + it.phase) * 0.08 * spinAmount;
+        it.obj.position.y = it.baseY + Math.sin(t * 12 + it.phase) * 0.02 * spinAmount;
+      }
+    }
+
+    if (giftVisible && giftT < 1) {
+      giftT = Math.min(1, giftT + dt * 2.2);
+      const eased = 1 - Math.pow(1 - giftT, 3); // easeOutCubic
+      giftGroup.scale.setScalar(eased);
+    }
+
+    if (giftVisible) {
+      camLerp = Math.min(1, camLerp + dt * 1.1);
+      camera.position.lerpVectors(baseCamPos, revealCamPos, camLerp);
+      const t = performance.now() * 0.001;
+      giftGroup.position.y = 0.5 + Math.sin(t * 2.0) * 0.04;
+      giftGroup.rotation.y += dt * 1.6;
+      giftLight.intensity = THREE.MathUtils.lerp(giftLight.intensity, 3.5, dt * 3.5);
+    } else {
+      giftLight.intensity = THREE.MathUtils.lerp(giftLight.intensity, 0, dt * 3);
+    }
+
+    camera.lookAt(lookTarget);
+
+    for (const layer of snowLayers) {
+      layer.update(dt);
+    }
+  };
+
+  return {
+    renderer,
+    scene,
+    camera,
+    treeGroup,
+    giftGroup,
+    setSpinAmount,
+    showGift,
+    hideGift,
+    setSize,
+    toggleDebug: setDebug,
+    update,
+  };
+}
+
+export function setAutoRotateSpeed(handles: SceneHandles, speed: number) {
+  // small helper called from main
+  // Note: stored in closure in createScene. We'll just rotate directly here.
+  handles.treeGroup.rotation.y += speed;
+}

@@ -15,7 +15,6 @@ const hint = document.getElementById("hint") as HTMLDivElement;
 
 let currentVoucher: Voucher | null = null;
 let giftReady = false;
-let spinAngle = 0;
 let spinVelocity = 0;
 let spinCharge = 0;
 let musicStarted = false;
@@ -238,15 +237,11 @@ modal.addEventListener("click", (e) => {
     spinCharge = Math.max(0, spinCharge * 0.96 - dt * 0.15) + Math.abs(spinVelocity) * dt * 0.8;
     cooldown = Math.max(0, cooldown - dt);
 
-    // integrate spin
-    spinAngle += spinVelocity * dt;
-    spinVelocity *= 0.985;
-    handles.treeGroup.rotation.y = spinAngle;
-
-    // drive secondary motion
-    const spinAmt = Math.min(1, Math.abs(spinVelocity) / 8);
-    if (handles.setSpinAmount) {
-      handles.setSpinAmount(spinAmt);
+    // integrate spin (inertial yaw velocity)
+    spinVelocity *= Math.exp(-dt * 1.8);
+    if (Math.abs(spinVelocity) < 0.02) spinVelocity = 0;
+    if (handles.setSpinVelocity) {
+      handles.setSpinVelocity(spinVelocity);
     }
 
     // threshold -> gift ready

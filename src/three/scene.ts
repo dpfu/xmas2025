@@ -11,7 +11,7 @@ export type SceneHandles = {
   camera: THREE.PerspectiveCamera;
   treeGroup: THREE.Group;
   giftGroup: THREE.Group;
-  setSpinAmount: (a: number) => void;
+  setSpinVelocity: (v: number) => void;
   showGift: () => void;
   hideGift: () => void;
   setSize: (w: number, h: number) => void;
@@ -116,6 +116,13 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
   treeGroup.scale.setScalar(1.0);
   scene.add(treeGroup);
 
+  const rig = new THREE.Group();
+  const trunkGroup = new THREE.Group();
+  const crownGroup = new THREE.Group();
+  const decoGroup = new THREE.Group();
+  rig.add(trunkGroup, crownGroup, decoGroup);
+  treeGroup.add(rig);
+
   const shadowTex = new THREE.CanvasTexture((() => {
     const c = document.createElement("canvas");
     c.width = 256; c.height = 256;
@@ -138,7 +145,6 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
   scene.add(shadow);
 
   const loader = new GLTFLoader();
-  const jiggleTargets: { obj: THREE.Object3D; baseY: number; baseRotZ: number; phase: number }[] = [];
   const baseCamPos = camera.position.clone();
   const revealCamPos = new THREE.Vector3(0, 1.1, 2.8);
   const lookTarget = new THREE.Vector3(stage.treeX, STAGE.targetY, stage.treeZ);
@@ -149,6 +155,14 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
   const haloOffset = new THREE.Vector3(0, 0.05, 0.06);
   const flameSprites: { sprite: THREE.Sprite; baseScale: THREE.Vector2; phase: number }[] = [];
   let flameLight: THREE.PointLight | null = null;
+  let yaw = 0;
+  let yawVel = 0;
+  let swayX = 0;
+  let swayZ = 0;
+  let swayVelX = 0;
+  let swayVelZ = 0;
+  let decoYaw = 0;
+  let decoYawVel = 0;
 
   function createHaloTexture() {
     const c = document.createElement("canvas");
@@ -188,9 +202,14 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
     return hit;
   }
 
-  function addCandleFlames(model: THREE.Object3D) {
-    const wick = findByName(model, "mesh1356770401_17") as THREE.Mesh | null;
-    if (!wick || !(wick as any).isMesh) return;
+  function spring(current: number, velocity: number, target: number, k: number, c: number, dt: number) {
+    const accel = -k * (current - target) - c * velocity;
+    const nextVel = velocity + accel * dt;
+    const next = current + nextVel * dt;
+    return [next, nextVel] as const;
+  }
+
+  function addCandleFlames(wick: THREE.Mesh, target: THREE.Object3D) {
     const geom = wick.geometry as THREE.BufferGeometry;
     const posAttr = geom.getAttribute("position") as THREE.BufferAttribute | null;
     if (!posAttr) return;
@@ -230,11 +249,11 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
 
     for (const bucket of buckets.values()) {
       const center = bucket.sum.multiplyScalar(1 / bucket.count);
-      const local = model.worldToLocal(center.clone());
+      const local = target.worldToLocal(center.clone());
       const sprite = new THREE.Sprite(flameMat.clone());
       sprite.position.copy(local).add(new THREE.Vector3(0, 0.06, 0));
       sprite.scale.set(0.1, 0.16, 1);
-      model.add(sprite);
+      target.add(sprite);
       flameSprites.push({
         sprite,
         baseScale: new THREE.Vector2(0.1, 0.16),
@@ -287,8 +306,11 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
     const scale = targetHeight / Math.max(size.y, 0.001);
     model.scale.setScalar(scale);
 
-    model.position.y = targetHeight / 2 - 0.05;
-    treeGroup.add(model);
+    model.position.y = 0;
+    model.updateMatrixWorld(true);
+    const scaledBox = new THREE.Box3().setFromObject(model);
+    model.position.y += -scaledBox.min.y;
+    rig.add(model);
 
     model.traverse((o) => {
       const mesh = o as THREE.Mesh;
@@ -328,20 +350,28 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
       star.add(starHalo);
     }
 
-    addCandleFlames(model);
+    const trunk = findByName(model, "mesh1356770401_1") as THREE.Mesh | null;
+    const crown = findByName(model, "mesh1356770401_2") as THREE.Mesh | null;
+    const wick = findByName(model, "mesh1356770401_17") as THREE.Mesh | null;
 
+    rig.updateMatrixWorld(true);
+    model.updateMatrixWorld(true);
+    const meshes: THREE.Mesh[] = [];
     model.traverse((o) => {
-      // Collect meshes for subtle jiggle when shaking; heuristic keeps it lightweight
-      const mesh = o as THREE.Mesh;
-      if ((mesh as any).isMesh) {
-        jiggleTargets.push({
-          obj: mesh,
-          baseY: mesh.position.y,
-          baseRotZ: mesh.rotation.z,
-          phase: Math.random() * Math.PI * 2,
-        });
-      }
+      if ((o as any).isMesh) meshes.push(o as THREE.Mesh);
     });
+    for (const mesh of meshes) {
+      if (mesh === trunk) {
+        trunkGroup.attach(mesh);
+      } else if (mesh === crown || mesh === star) {
+        crownGroup.attach(mesh);
+      } else {
+        decoGroup.attach(mesh);
+      }
+    }
+    rig.remove(model);
+
+    if (wick) addCandleFlames(wick, decoGroup);
 
     frameObject();
   } catch (e) {
@@ -351,7 +381,7 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
       new THREE.MeshStandardMaterial({ color: 0x2aa84a, roughness: 1 })
     );
     placeholder.position.y = 1.2;
-    treeGroup.add(placeholder);
+    crownGroup.add(placeholder);
     frameObject();
   }
 
@@ -451,13 +481,11 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
     if (treeGroup.children.length > 0) frameObject();
   };
 
-  let autoRotate = 0;
   let giftVisible = false;
   let giftT = 0;
   let camLerp = 0;
-  let spinAmount = 0;
-  const setSpinAmount = (a: number) => {
-    spinAmount = THREE.MathUtils.clamp(a, 0, 1);
+  const setSpinVelocity = (v: number) => {
+    yawVel = v;
   };
 
   const showGift = () => {
@@ -613,16 +641,25 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
 
   const update = (dt: number) => {
     // dt is seconds
-    treeGroup.rotation.y += autoRotate * dt;
-    autoRotate *= 0.95;
+    yaw += yawVel * dt;
+    const speed = Math.min(1, Math.abs(yawVel) / 2.5);
+    const targetLeanX = 0.03 * speed;
+    const targetLeanZ = 0.05 * speed * Math.sign(yawVel || 1);
+    [swayX, swayVelX] = spring(swayX, swayVelX, targetLeanX, 26, 7, dt);
+    [swayZ, swayVelZ] = spring(swayZ, swayVelZ, targetLeanZ, 26, 7, dt);
+    swayX = THREE.MathUtils.clamp(swayX, -0.18, 0.18);
+    swayZ = THREE.MathUtils.clamp(swayZ, -0.22, 0.22);
 
-    if (spinAmount > 0 && jiggleTargets.length > 0) {
-      const t = performance.now() * 0.001;
-      for (const it of jiggleTargets) {
-        it.obj.rotation.z = it.baseRotZ + Math.sin(t * 10 + it.phase) * 0.08 * spinAmount;
-        it.obj.position.y = it.baseY + Math.sin(t * 12 + it.phase) * 0.02 * spinAmount;
-      }
-    }
+    rig.rotation.y = yaw;
+    const t = performance.now() * 0.001;
+    trunkGroup.rotation.x = swayX * 0.35;
+    trunkGroup.rotation.z = swayZ * 0.35;
+    crownGroup.rotation.x = swayX + Math.sin(t * 1.7) * 0.005;
+    crownGroup.rotation.z = swayZ + Math.sin(t * 1.3) * 0.005;
+    [decoYaw, decoYawVel] = spring(decoYaw, decoYawVel, yawVel * 0.08, 18, 6, dt);
+    decoGroup.rotation.y = -decoYaw;
+    decoGroup.rotation.x = swayX * 1.15;
+    decoGroup.rotation.z = swayZ * 1.15;
 
     if (giftVisible && giftT < 1) {
       giftT = Math.min(1, giftT + dt * 2.2);
@@ -685,7 +722,7 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
     camera,
     treeGroup,
     giftGroup,
-    setSpinAmount,
+    setSpinVelocity,
     showGift,
     hideGift,
     setSize,

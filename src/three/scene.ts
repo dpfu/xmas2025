@@ -33,6 +33,7 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
   renderer.toneMappingExposure = 1.08;
 
   const scene = new THREE.Scene();
+  scene.fog = new THREE.Fog(0xd8e2f1, 3, 10);
   const snowLayers: SnowLayer[] = [];
   const debugHelpers: THREE.Object3D[] = [];
   let debugVisible = false;
@@ -96,8 +97,9 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
     const y = gPos.getY(i);
     const r2 = x * x + y * y;
     const hill = 0.42 * Math.exp(-r2 / 18);
+    const mound = 0.07 * Math.exp(-r2 / 0.6);
     const noise = (Math.sin(x * 0.7) + Math.cos(y * 0.6)) * 0.01;
-    gPos.setZ(i, hill + noise);
+    gPos.setZ(i, hill + mound + noise);
   }
   gPos.needsUpdate = true;
   groundGeo.computeVertexNormals();
@@ -108,22 +110,37 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
     const ctx = c.getContext("2d");
     if (!ctx) return c;
     const g = ctx.createLinearGradient(0, 256, 0, 0);
-    g.addColorStop(0, "rgba(255,255,255,0.98)");
-    g.addColorStop(0.6, "rgba(255,255,255,0.9)");
+    g.addColorStop(0, "rgba(255,255,255,1)");
+    g.addColorStop(0.7, "rgba(255,255,255,1)");
     g.addColorStop(1, "rgba(255,255,255,0)");
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, 256, 256);
     return c;
   })());
   groundFade.colorSpace = THREE.SRGBColorSpace;
+  const groundColorMap = new THREE.CanvasTexture((() => {
+    const c = document.createElement("canvas");
+    c.width = 256;
+    c.height = 256;
+    const ctx = c.getContext("2d");
+    if (!ctx) return c;
+    const g = ctx.createLinearGradient(0, 256, 0, 0);
+    g.addColorStop(0, "#eef3ff");
+    g.addColorStop(1, "#f7faff");
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, 256, 256);
+    return c;
+  })());
+  groundColorMap.colorSpace = THREE.SRGBColorSpace;
   const ground = new THREE.Mesh(
     groundGeo,
     new THREE.MeshStandardMaterial({
-      color: 0xf5f7ff,
+      color: 0xf4f7ff,
       roughness: 0.98,
       metalness: 0.0,
       transparent: true,
       alphaMap: groundFade,
+      map: groundColorMap,
       depthWrite: false,
     })
   );
@@ -179,7 +196,7 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
   contactShadowTex.colorSpace = THREE.SRGBColorSpace;
   const contactShadow = new THREE.Mesh(
     new THREE.PlaneGeometry(0.7, 0.7),
-    new THREE.MeshBasicMaterial({ map: contactShadowTex, transparent: true, depthWrite: false, opacity: 0.55 })
+    new THREE.MeshBasicMaterial({ map: contactShadowTex, transparent: true, depthWrite: false, opacity: 0.28 })
   );
   contactShadow.rotation.x = -Math.PI / 2;
   contactShadow.position.set(stage.treeX, stage.groundY + 0.003, stage.treeZ);

@@ -455,6 +455,13 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
       trunkMat.fog = false;
       trunk.material = trunkMat;
       console.log("[TRUNK fog disabled]", { fog: (trunk.material as any).fog });
+      trunk.visible = true;
+      const mats = Array.isArray(trunk.material) ? trunk.material : [trunk.material];
+      for (const mat of mats) {
+        (mat as THREE.Material).transparent = false;
+        (mat as THREE.Material).opacity = 1;
+      }
+      console.log("[TRUNK visible test]", trunk.visible, (trunk.material as any).transparent);
     }
 
     const star = findByName(model, "group1533398606") as THREE.Mesh | null;

@@ -28,6 +28,26 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
   const snowLayers: SnowLayer[] = [];
   const debugHelpers: THREE.Object3D[] = [];
   let debugVisible = false;
+  const treeBounds = {
+    box: new THREE.Box3(),
+    size: new THREE.Vector3(),
+    center: new THREE.Vector3(),
+  };
+  type LabelHandle = {
+    sprite: THREE.Sprite;
+    canvas: HTMLCanvasElement;
+    ctx: CanvasRenderingContext2D | null;
+    texture: THREE.CanvasTexture;
+  };
+  let debugHandles: {
+    cross: THREE.LineSegments;
+    crossLabel: LabelHandle;
+    groundLine: THREE.Line;
+    groundLabel: LabelHandle;
+    safeFrame: THREE.Line;
+    safeLabel: LabelHandle;
+    boxHelper: THREE.BoxHelper;
+  } | null = null;
 
   let mode = getLayoutMode();
   const isPortrait = () => mode === "portrait";
@@ -58,25 +78,25 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
 
   // Snow podium
   const podium = new THREE.Mesh(
-    new THREE.CylinderGeometry(1.8, 1.9, 0.18, 64),
+    new THREE.CylinderGeometry(1.6, 1.7, 0.14, 64),
     new THREE.MeshStandardMaterial({ color: 0xeef2f8, roughness: 0.96, metalness: 0.0 })
   );
-  podium.position.y = stage.groundY - 0.12;
+  podium.position.y = stage.groundY - 0.1;
   scene.add(podium);
 
   const top = new THREE.Mesh(
-    new THREE.CylinderGeometry(1.7, 1.7, 0.04, 64),
+    new THREE.CylinderGeometry(1.52, 1.52, 0.035, 64),
     new THREE.MeshStandardMaterial({ color: 0xf9fbff, roughness: 1.0 })
   );
-  top.position.y = stage.groundY - 0.04;
+  top.position.y = stage.groundY - 0.03;
   scene.add(top);
 
   const rim = new THREE.Mesh(
-    new THREE.TorusGeometry(1.72, 0.025, 10, 80),
+    new THREE.TorusGeometry(1.53, 0.025, 10, 80),
     new THREE.MeshStandardMaterial({ color: 0xdfe4ed, roughness: 1.0 })
   );
   rim.rotation.x = Math.PI / 2;
-  rim.position.y = stage.groundY - 0.04;
+  rim.position.y = stage.groundY - 0.03;
   scene.add(rim);
 
   const treeGroup = new THREE.Group();
@@ -111,16 +131,25 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
   const revealCamPos = new THREE.Vector3(0, 1.1, 2.8);
   const lookTarget = new THREE.Vector3(stage.treeX, STAGE.targetY, stage.treeZ);
 
-  function frameObject(obj: THREE.Object3D) {
+  function updateTreeBounds() {
+    treeBounds.box.setFromObject(treeGroup);
+    treeBounds.box.getSize(treeBounds.size);
+    treeBounds.box.getCenter(treeBounds.center);
+  }
+
+  function frameObject() {
+    updateTreeBounds();
+    lookTarget.copy(treeBounds.center);
     frameObjectToCamera({
       camera,
-      object: obj,
-      target: new THREE.Vector3(stage.treeX, STAGE.targetY, stage.treeZ),
+      object: treeGroup,
+      target: lookTarget,
       fov: isPortrait() ? 36 : 32,
-      padding: isPortrait() ? 1.3 : 1.18,
-      minDist: isPortrait() ? 4.0 : 3.9,
-      maxDist: 6.0,
+      padding: isPortrait() ? 1.35 : 1.2,
+      minDist: isPortrait() ? 4.2 : 4.0,
+      maxDist: 6.2,
     });
+    updateDebugHelpers();
   }
 
   // Load tree model
@@ -156,7 +185,7 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
       }
     });
 
-    frameObject(treeGroup);
+    frameObject();
   } catch (e) {
     // If no model is present yet, show a placeholder cone
     const placeholder = new THREE.Mesh(
@@ -165,7 +194,7 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
     );
     placeholder.position.y = 1.2;
     treeGroup.add(placeholder);
-    frameObject(treeGroup);
+    frameObject();
   }
 
   const giftGroup = new THREE.Group();
@@ -258,8 +287,7 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
     stage.treeX = isPortrait() ? STAGE.mobile.treeX : STAGE.desktop.treeX;
     stage.treeZ = isPortrait() ? STAGE.mobile.treeZ : STAGE.desktop.treeZ;
     treeGroup.position.set(stage.treeX, stage.groundY, stage.treeZ);
-    lookTarget.set(stage.treeX, STAGE.targetY, stage.treeZ);
-    if (treeGroup.children.length > 0) frameObject(treeGroup);
+    if (treeGroup.children.length > 0) frameObject();
   };
 
   let autoRotate = 0;
@@ -291,9 +319,53 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
     for (const h of debugHelpers) {
       h.visible = debugVisible;
     }
+    if (debugVisible) updateDebugHelpers();
   }
 
   // Build debug helpers
+  function makeLabel(text: string, pos: THREE.Vector3): LabelHandle {
+    const canvas = document.createElement("canvas");
+    canvas.width = 256; canvas.height = 64;
+    const ctx = canvas.getContext("2d");
+    if (ctx) {
+      ctx.fillStyle = "rgba(0,0,0,0.7)";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "#ffeaa7";
+      ctx.font = "16px 'Segoe UI'";
+      ctx.fillText(text, 10, 24);
+    }
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    const spriteMat = new THREE.SpriteMaterial({ map: texture, depthTest: false, depthWrite: false, transparent: true });
+    const sprite = new THREE.Sprite(spriteMat);
+    sprite.scale.set(0.9, 0.25, 1);
+    sprite.position.copy(pos).add(new THREE.Vector3(0.2, 0.3, 0));
+    debugHelpers.push(sprite);
+    scene.add(sprite);
+    return { sprite, canvas, ctx, texture };
+  }
+
+  function updateLabel(label: LabelHandle, text: string, pos: THREE.Vector3) {
+    if (label.ctx) {
+      label.ctx.clearRect(0, 0, label.canvas.width, label.canvas.height);
+      label.ctx.fillStyle = "rgba(0,0,0,0.7)";
+      label.ctx.fillRect(0, 0, label.canvas.width, label.canvas.height);
+      label.ctx.fillStyle = "#ffeaa7";
+      label.ctx.font = "16px 'Segoe UI'";
+      label.ctx.fillText(text, 10, 24);
+      label.texture.needsUpdate = true;
+    }
+    label.sprite.position.copy(pos).add(new THREE.Vector3(0.2, 0.3, 0));
+  }
+
+  function updateLine(line: THREE.Line, a: THREE.Vector3, b: THREE.Vector3) {
+    const pos = line.geometry.getAttribute("position") as THREE.BufferAttribute;
+    pos.setXYZ(0, a.x, a.y, a.z);
+    pos.setXYZ(1, b.x, b.y, b.z);
+    pos.needsUpdate = true;
+    line.geometry.computeBoundingSphere();
+  }
+
   const addDebugHelpers = () => {
     // Crosshair at look target
     const crossGeo = new THREE.BufferGeometry().setFromPoints([
@@ -308,28 +380,10 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
     debugHelpers.push(cross);
     scene.add(cross);
 
-    // Crosshair label
-    const makeLabel = (text: string, pos: THREE.Vector3) => {
-      const c = document.createElement("canvas");
-      c.width = 256; c.height = 64;
-      const ctx = c.getContext("2d");
-      if (ctx) {
-        ctx.fillStyle = "rgba(0,0,0,0.7)";
-        ctx.fillRect(0, 0, c.width, c.height);
-        ctx.fillStyle = "#ffeaa7";
-        ctx.font = "16px 'Segoe UI'";
-        ctx.fillText(text, 10, 24);
-      }
-      const tex = new THREE.CanvasTexture(c);
-      tex.colorSpace = THREE.SRGBColorSpace;
-      const spriteMat = new THREE.SpriteMaterial({ map: tex, depthTest: false, depthWrite: false, transparent: true });
-      const sprite = new THREE.Sprite(spriteMat);
-      sprite.scale.set(0.9, 0.25, 1);
-      sprite.position.copy(pos).add(new THREE.Vector3(0.2, 0.3, 0));
-      debugHelpers.push(sprite);
-      scene.add(sprite);
-    };
-    makeLabel(`Target (${lookTarget.x.toFixed(2)}, ${lookTarget.y.toFixed(2)}, ${lookTarget.z.toFixed(2)})`, lookTarget);
+    const crossLabel = makeLabel(
+      `Target (${lookTarget.x.toFixed(2)}, ${lookTarget.y.toFixed(2)}, ${lookTarget.z.toFixed(2)})`,
+      lookTarget
+    );
 
     // Ground line
     const groundMat = new THREE.LineBasicMaterial({ color: 0x99c2ff, depthTest: false });
@@ -340,7 +394,10 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
     const groundLine = new THREE.Line(groundGeo, groundMat);
     debugHelpers.push(groundLine);
     scene.add(groundLine);
-    makeLabel(`Ground y=${stage.groundY.toFixed(2)}`, new THREE.Vector3(stage.treeX, stage.groundY + 0.15, stage.treeZ));
+    const groundLabel = makeLabel(
+      `Ground y=${stage.groundY.toFixed(2)}`,
+      new THREE.Vector3(stage.treeX, stage.groundY + 0.15, stage.treeZ)
+    );
 
     // Safe frame (top margin)
     const frameMat = new THREE.LineBasicMaterial({ color: 0xff88aa, depthTest: false });
@@ -351,7 +408,7 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
     const safeFrame = new THREE.Line(frameGeo, frameMat);
     debugHelpers.push(safeFrame);
     scene.add(safeFrame);
-    makeLabel("Safe top", new THREE.Vector3(1, 1.6, -2));
+    const safeLabel = makeLabel("Tree top", new THREE.Vector3(1, 1.6, -2));
 
     // Bounding box helper for tree
     const boxHelper = new THREE.BoxHelper(treeGroup, 0x55ff88);
@@ -359,9 +416,36 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
     debugHelpers.push(boxHelper);
     scene.add(boxHelper);
 
+    debugHandles = { cross, crossLabel, groundLine, groundLabel, safeFrame, safeLabel, boxHelper };
     // Hide by default
     debugHelpers.forEach((h) => (h.visible = false));
   };
+
+  function updateDebugHelpers() {
+    if (!debugHandles) return;
+    updateTreeBounds();
+    debugHandles.cross.position.copy(lookTarget);
+    updateLabel(
+      debugHandles.crossLabel,
+      `Target (${lookTarget.x.toFixed(2)}, ${lookTarget.y.toFixed(2)}, ${lookTarget.z.toFixed(2)})`,
+      lookTarget
+    );
+    const groundLeft = new THREE.Vector3(stage.treeX - 2, stage.groundY, stage.treeZ);
+    const groundRight = new THREE.Vector3(stage.treeX + 2, stage.groundY, stage.treeZ);
+    updateLine(debugHandles.groundLine, groundLeft, groundRight);
+    updateLabel(
+      debugHandles.groundLabel,
+      `Ground y=${stage.groundY.toFixed(2)}`,
+      new THREE.Vector3(stage.treeX, stage.groundY + 0.15, stage.treeZ)
+    );
+    const topY = treeBounds.center.y + treeBounds.size.y * 0.5;
+    const safeY = topY + treeBounds.size.y * 0.05;
+    const safeLeft = new THREE.Vector3(stage.treeX - 0.6, safeY, stage.treeZ);
+    const safeRight = new THREE.Vector3(stage.treeX + 0.6, safeY, stage.treeZ);
+    updateLine(debugHandles.safeFrame, safeLeft, safeRight);
+    updateLabel(debugHandles.safeLabel, "Tree top", new THREE.Vector3(stage.treeX + 0.2, safeY, stage.treeZ));
+    debugHandles.boxHelper.update();
+  }
 
   addDebugHelpers();
 
@@ -400,6 +484,8 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
     for (const layer of snowLayers) {
       layer.update(dt);
     }
+
+    if (debugVisible) updateDebugHelpers();
   };
 
   return {

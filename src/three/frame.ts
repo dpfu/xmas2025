@@ -24,10 +24,14 @@ export function frameObjectToCamera(opts: FrameOpts) {
   box.getSize(size);
 
   const height = size.y * padding;
+  const width = size.x * padding;
   const vFov = (camera.fov * Math.PI) / 180;
-  const dist = Math.max((height / 2) / Math.tan(vFov / 2), minDist);
+  const hFov = 2 * Math.atan(Math.tan(vFov / 2) * camera.aspect);
+  const distV = (height / 2) / Math.tan(vFov / 2);
+  const distH = (width / 2) / Math.tan(hFov / 2);
+  const dist = Math.max(distV, distH, minDist);
   const clamped = THREE.MathUtils.clamp(dist, minDist, maxDist);
 
-  camera.position.set(target.x, target.y + 0.2, target.z + clamped);
+  camera.position.set(target.x, target.y + size.y * 0.1, target.z + clamped);
   camera.lookAt(target);
 }

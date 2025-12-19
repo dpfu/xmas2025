@@ -88,28 +88,48 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
   rimLight.position.set(-3.5, 2.2, -3.0);
   scene.add(rimLight);
 
-  // Snow podium
-  const podium = new THREE.Mesh(
-    new THREE.CylinderGeometry(1.35, 1.45, 0.12, 64),
-    new THREE.MeshStandardMaterial({ color: 0xf4f7ff, roughness: 0.96, metalness: 0.0 })
+  // Snow ground
+  const groundGeo = new THREE.PlaneGeometry(20, 20, 128, 128);
+  const gPos = groundGeo.attributes.position as THREE.BufferAttribute;
+  for (let i = 0; i < gPos.count; i++) {
+    const x = gPos.getX(i);
+    const y = gPos.getY(i);
+    const r2 = x * x + y * y;
+    const hill = 0.42 * Math.exp(-r2 / 18);
+    const noise = (Math.sin(x * 0.7) + Math.cos(y * 0.6)) * 0.01;
+    gPos.setZ(i, hill + noise);
+  }
+  gPos.needsUpdate = true;
+  groundGeo.computeVertexNormals();
+  const groundFade = new THREE.CanvasTexture((() => {
+    const c = document.createElement("canvas");
+    c.width = 256;
+    c.height = 256;
+    const ctx = c.getContext("2d");
+    if (!ctx) return c;
+    const g = ctx.createLinearGradient(0, 256, 0, 0);
+    g.addColorStop(0, "rgba(255,255,255,0.98)");
+    g.addColorStop(0.6, "rgba(255,255,255,0.9)");
+    g.addColorStop(1, "rgba(255,255,255,0)");
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, 256, 256);
+    return c;
+  })());
+  groundFade.colorSpace = THREE.SRGBColorSpace;
+  const ground = new THREE.Mesh(
+    groundGeo,
+    new THREE.MeshStandardMaterial({
+      color: 0xf5f7ff,
+      roughness: 0.98,
+      metalness: 0.0,
+      transparent: true,
+      alphaMap: groundFade,
+      depthWrite: false,
+    })
   );
-  podium.position.y = stage.groundY - 0.1;
-  scene.add(podium);
-
-  const top = new THREE.Mesh(
-    new THREE.CylinderGeometry(1.3, 1.3, 0.03, 64),
-    new THREE.MeshStandardMaterial({ color: 0xf7faff, roughness: 1.0 })
-  );
-  top.position.y = stage.groundY - 0.03;
-  scene.add(top);
-
-  const rim = new THREE.Mesh(
-    new THREE.TorusGeometry(1.31, 0.022, 10, 80),
-    new THREE.MeshStandardMaterial({ color: 0xe3e9f4, roughness: 1.0 })
-  );
-  rim.rotation.x = Math.PI / 2;
-  rim.position.y = stage.groundY - 0.03;
-  scene.add(rim);
+  ground.rotation.x = -Math.PI / 2;
+  ground.position.set(stage.treeX, stage.groundY - 0.06, stage.treeZ - 0.6);
+  scene.add(ground);
 
   const treeGroup = new THREE.Group();
   treeGroup.position.set(stage.treeX, stage.groundY, stage.treeZ);
@@ -496,6 +516,7 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
     stage.treeX = isPortrait() ? STAGE.mobile.treeX : STAGE.desktop.treeX;
     stage.treeZ = isPortrait() ? STAGE.mobile.treeZ : STAGE.desktop.treeZ;
     treeGroup.position.set(stage.treeX, stage.groundY, stage.treeZ);
+    ground.position.set(stage.treeX, stage.groundY - 0.06, stage.treeZ - 0.6);
     shadow.position.set(stage.treeX, stage.groundY + 0.002, stage.treeZ);
     contactShadow.position.set(stage.treeX, stage.groundY + 0.003, stage.treeZ);
     if (flameLight) {

@@ -259,6 +259,8 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
   let decoYaw = 0;
   let decoYawVel = 0;
   let trunkHelper: THREE.BoxHelper | null = null;
+  let trunkMarker: THREE.Mesh | null = null;
+  const trunkWorldPos = new THREE.Vector3();
 
   function createHaloTexture() {
     const c = document.createElement("canvas");
@@ -469,6 +471,20 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
       (trunkHelper.material as THREE.Material).depthTest = false;
       trunkHelper.renderOrder = 31;
       scene.add(trunkHelper);
+      trunk.getWorldPosition(trunkWorldPos);
+      console.log("[TRUNK scale]", trunk.scale.toArray());
+      console.log("[TRUNK world]", trunkWorldPos.toArray());
+      const trunkBox = new THREE.Box3().setFromObject(trunk);
+      const trunkSize = new THREE.Vector3();
+      trunkBox.getSize(trunkSize);
+      console.log("[TRUNK size]", trunkSize.toArray());
+      trunkMarker = new THREE.Mesh(
+        new THREE.SphereGeometry(0.05, 12, 12),
+        new THREE.MeshBasicMaterial({ color: 0xff00ff, depthTest: false })
+      );
+      trunkMarker.renderOrder = 32;
+      trunkMarker.position.copy(trunkWorldPos);
+      scene.add(trunkMarker);
     }
 
     const star = findByName(model, "group1533398606") as THREE.Mesh | null;
@@ -866,6 +882,10 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
 
     if (debugVisible) updateDebugHelpers();
     if (trunkHelper) trunkHelper.update();
+    if (trunkMarker && trunk) {
+      trunk.getWorldPosition(trunkWorldPos);
+      trunkMarker.position.copy(trunkWorldPos);
+    }
   };
 
   return {

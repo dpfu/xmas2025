@@ -25,6 +25,14 @@ export type SceneHandles = {
   update: (dt: number) => void;
 };
 
+export function findMeshByName(root: THREE.Object3D, name: string): THREE.Mesh | null {
+  let hit: THREE.Mesh | null = null;
+  root.traverse((o: any) => {
+    if (o?.isMesh && o.name === name) hit = o as THREE.Mesh;
+  });
+  return hit;
+}
+
 export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandles> {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -33,7 +41,7 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
   renderer.toneMappingExposure = 1.08;
 
   const scene = new THREE.Scene();
-  scene.fog = new THREE.Fog(0xd8e2f1, 3, 10);
+  scene.fog = new THREE.Fog(0xbcc9d9, 2.8, 10.0);
   const snowLayers: SnowLayer[] = [];
   const debugHelpers: THREE.Object3D[] = [];
   let debugVisible = false;
@@ -103,20 +111,29 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
   }
   gPos.needsUpdate = true;
   groundGeo.computeVertexNormals();
-  const groundFade = new THREE.CanvasTexture((() => {
+  function makeGroundAlphaFadeTexture() {
     const c = document.createElement("canvas");
-    c.width = 256;
+    c.width = 4;
     c.height = 256;
     const ctx = c.getContext("2d");
     if (!ctx) return c;
-    const g = ctx.createLinearGradient(0, 256, 0, 0);
-    g.addColorStop(0, "rgba(255,255,255,1)");
-    g.addColorStop(0.7, "rgba(255,255,255,1)");
-    g.addColorStop(1, "rgba(255,255,255,0)");
+    const g = ctx.createLinearGradient(0, 255, 0, 0);
+    g.addColorStop(0.0, "rgba(255,255,255,1.0)");
+    g.addColorStop(0.60, "rgba(255,255,255,1.0)");
+    g.addColorStop(1.0, "rgba(255,255,255,0.0)");
     ctx.fillStyle = g;
-    ctx.fillRect(0, 0, 256, 256);
-    return c;
-  })());
+    ctx.fillRect(0, 0, c.width, c.height);
+    const tex = new THREE.CanvasTexture(c);
+    tex.wrapS = THREE.ClampToEdgeWrapping;
+    tex.wrapT = THREE.ClampToEdgeWrapping;
+    tex.minFilter = THREE.LinearFilter;
+    tex.magFilter = THREE.LinearFilter;
+    tex.generateMipmaps = false;
+    tex.needsUpdate = true;
+    return tex;
+  }
+
+  const groundFade = makeGroundAlphaFadeTexture();
   groundFade.colorSpace = THREE.SRGBColorSpace;
   const groundColorMap = new THREE.CanvasTexture((() => {
     const c = document.createElement("canvas");
@@ -125,32 +142,45 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
     const ctx = c.getContext("2d");
     if (!ctx) return c;
     const g = ctx.createLinearGradient(0, 256, 0, 0);
-    g.addColorStop(0, "#eef3ff");
+    g.addColorStop(0, "#e9efff");
     g.addColorStop(1, "#f7faff");
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, 256, 256);
     return c;
   })());
   groundColorMap.colorSpace = THREE.SRGBColorSpace;
+  const groundMat = new THREE.MeshStandardMaterial({
+    color: new THREE.Color("#f4f7ff"),
+    roughness: 0.98,
+    metalness: 0.0,
+    transparent: true,
+    opacity: 1.0,
+  });
+  groundMat.alphaMap = groundFade;
+  groundMat.depthWrite = false;
+  groundMat.depthTest = true;
+  groundMat.needsUpdate = true;
+  groundMat.map = groundColorMap;
+
   const ground = new THREE.Mesh(
     groundGeo,
-    new THREE.MeshStandardMaterial({
-      color: 0xf4f7ff,
-      roughness: 0.98,
-      metalness: 0.0,
-      transparent: true,
-      alphaMap: groundFade,
-      map: groundColorMap,
-      depthWrite: false,
-    })
+    groundMat
   );
   ground.rotation.x = -Math.PI / 2;
   ground.position.set(stage.treeX, stage.groundY - 0.06, stage.treeZ - 0.6);
+  ground.renderOrder = 0;
   scene.add(ground);
+  console.log("[GROUND]", {
+    hasUV: !!ground.geometry.attributes.uv,
+    transparent: (ground.material as any).transparent,
+    depthWrite: (ground.material as any).depthWrite,
+    hasAlphaMap: !!(ground.material as any).alphaMap,
+  });
 
   const treeGroup = new THREE.Group();
   treeGroup.position.set(stage.treeX, stage.groundY, stage.treeZ);
   treeGroup.scale.setScalar(1.0);
+  treeGroup.renderOrder = 1;
   scene.add(treeGroup);
 
   const rig = new THREE.Group();
@@ -158,6 +188,7 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
   const crownGroup = new THREE.Group();
   const decoGroup = new THREE.Group();
   rig.add(trunkGroup, crownGroup, decoGroup);
+  rig.renderOrder = 1;
   treeGroup.add(rig);
 
   const shadowTex = new THREE.CanvasTexture((() => {
@@ -370,9 +401,26 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
     model.position.y += -scaledBox.min.y;
     rig.add(model);
 
+    const trunk = findMeshByName(model, "mesh1356770401_1");
+    if (trunk) {
+      const m: any = trunk.material;
+      console.log("[TRUNK]", {
+        name: trunk.name,
+        matType: m?.type,
+        color: m?.color?.getHexString?.(),
+        roughness: m?.roughness,
+        metalness: m?.metalness,
+        emissive: m?.emissive?.getHexString?.(),
+      });
+    } else {
+      console.warn("[TRUNK] not found");
+    }
+
     model.traverse((o) => {
+      if (!o?.isMesh) return;
+      if (o.name === "mesh1356770401_1") return;
       const mesh = o as THREE.Mesh;
-      if (!(mesh as any).isMesh || !mesh.material) return;
+      if (!mesh.material) return;
       const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
       for (const m of mats) {
         const mat = m as THREE.MeshStandardMaterial;
@@ -380,6 +428,14 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
         if ("metalness" in mat) mat.metalness = Math.max(mat.metalness ?? 0, 0.05);
       }
     });
+
+    if (trunk) {
+      trunk.material = new THREE.MeshStandardMaterial({
+        color: "#5b3b2f",
+        roughness: 0.95,
+        metalness: 0.0,
+      });
+    }
 
     const star = findByName(model, "group1533398606") as THREE.Mesh | null;
     if (star && (star as any).isMesh) {
@@ -408,7 +464,6 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
       star.add(starHalo);
     }
 
-    const trunk = findByName(model, "mesh1356770401_1") as THREE.Mesh | null;
     const crown = findByName(model, "mesh1356770401_2") as THREE.Mesh | null;
     const wick = findByName(model, "mesh1356770401_17") as THREE.Mesh | null;
 

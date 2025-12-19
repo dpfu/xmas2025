@@ -84,28 +84,28 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
   spot.position.set(0, 2.2, -3.5);
   scene.add(spot);
 
-  const rimLight = new THREE.DirectionalLight(0xe8f4ff, 0.85);
+  const rimLight = new THREE.DirectionalLight(0xe8f4ff, 0.95);
   rimLight.position.set(-3.5, 2.2, -3.0);
   scene.add(rimLight);
 
   // Snow podium
   const podium = new THREE.Mesh(
-    new THREE.CylinderGeometry(1.6, 1.7, 0.14, 64),
-    new THREE.MeshStandardMaterial({ color: 0xeef2f8, roughness: 0.96, metalness: 0.0 })
+    new THREE.CylinderGeometry(1.35, 1.45, 0.12, 64),
+    new THREE.MeshStandardMaterial({ color: 0xf4f7ff, roughness: 0.96, metalness: 0.0 })
   );
   podium.position.y = stage.groundY - 0.1;
   scene.add(podium);
 
   const top = new THREE.Mesh(
-    new THREE.CylinderGeometry(1.52, 1.52, 0.035, 64),
-    new THREE.MeshStandardMaterial({ color: 0xf9fbff, roughness: 1.0 })
+    new THREE.CylinderGeometry(1.3, 1.3, 0.03, 64),
+    new THREE.MeshStandardMaterial({ color: 0xf7faff, roughness: 1.0 })
   );
   top.position.y = stage.groundY - 0.03;
   scene.add(top);
 
   const rim = new THREE.Mesh(
-    new THREE.TorusGeometry(1.53, 0.025, 10, 80),
-    new THREE.MeshStandardMaterial({ color: 0xdfe4ed, roughness: 1.0 })
+    new THREE.TorusGeometry(1.31, 0.022, 10, 80),
+    new THREE.MeshStandardMaterial({ color: 0xe3e9f4, roughness: 1.0 })
   );
   rim.rotation.x = Math.PI / 2;
   rim.position.y = stage.groundY - 0.03;
@@ -137,12 +137,33 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
   })());
   shadowTex.colorSpace = THREE.SRGBColorSpace;
   const shadow = new THREE.Mesh(
-    new THREE.PlaneGeometry(3.2, 3.2),
-    new THREE.MeshBasicMaterial({ map: shadowTex, transparent: true, depthWrite: false, opacity: 0.45 })
+    new THREE.PlaneGeometry(2.6, 2.6),
+    new THREE.MeshBasicMaterial({ map: shadowTex, transparent: true, depthWrite: false, opacity: 0.38 })
   );
   shadow.rotation.x = -Math.PI / 2;
   shadow.position.set(stage.treeX, stage.groundY + 0.002, stage.treeZ);
   scene.add(shadow);
+
+  const contactShadowTex = new THREE.CanvasTexture((() => {
+    const c = document.createElement("canvas");
+    c.width = 128; c.height = 128;
+    const ctx = c.getContext("2d");
+    if (!ctx) return c;
+    const g = ctx.createRadialGradient(64, 64, 6, 64, 64, 56);
+    g.addColorStop(0, "rgba(0,0,0,0.28)");
+    g.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, 128, 128);
+    return c;
+  })());
+  contactShadowTex.colorSpace = THREE.SRGBColorSpace;
+  const contactShadow = new THREE.Mesh(
+    new THREE.PlaneGeometry(0.7, 0.7),
+    new THREE.MeshBasicMaterial({ map: contactShadowTex, transparent: true, depthWrite: false, opacity: 0.55 })
+  );
+  contactShadow.rotation.x = -Math.PI / 2;
+  contactShadow.position.set(stage.treeX, stage.groundY + 0.003, stage.treeZ);
+  scene.add(contactShadow);
 
   const loader = new GLTFLoader();
   const baseCamPos = camera.position.clone();
@@ -403,9 +424,9 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
   const snowScale = prefersReducedMotion ? 0.5 : 1;
 
   const snowConfigs = [
-    { count: Math.floor(140 * snowScale), size: [1.6, 3], speed: 0.12, z: -6, opacity: 0.35 },
-    { count: Math.floor(260 * snowScale), size: [2.5, 5], speed: 0.18, z: -2, opacity: 0.55 },
-    { count: Math.floor(80 * snowScale), size: [4, 7], speed: 0.2, z: 1.5, opacity: 0.32 },
+    { count: Math.floor(220 * snowScale), size: [0.7, 1.3], speed: 0.08, z: -8, opacity: 0.2 },
+    { count: Math.floor(170 * snowScale), size: [1.0, 1.8], speed: 0.12, z: -3.2, opacity: 0.28 },
+    { count: Math.floor(28 * snowScale), size: [1.4, 2.2], speed: 0.16, z: 0.8, opacity: 0.22 },
   ];
 
   for (const cfg of snowConfigs) {
@@ -475,6 +496,8 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
     stage.treeX = isPortrait() ? STAGE.mobile.treeX : STAGE.desktop.treeX;
     stage.treeZ = isPortrait() ? STAGE.mobile.treeZ : STAGE.desktop.treeZ;
     treeGroup.position.set(stage.treeX, stage.groundY, stage.treeZ);
+    shadow.position.set(stage.treeX, stage.groundY + 0.002, stage.treeZ);
+    contactShadow.position.set(stage.treeX, stage.groundY + 0.003, stage.treeZ);
     if (flameLight) {
       flameLight.position.set(stage.treeX, stage.groundY + 1.4, stage.treeZ);
     }

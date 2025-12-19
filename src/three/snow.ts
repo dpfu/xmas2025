@@ -71,7 +71,7 @@ export function createSnowLayer(opts: SnowOpts): SnowLayer {
         p.x += sin(uTime * 0.35 + p.y * 0.12) * uWindAmp;
         p.z += cos(uTime * 0.27 + p.y * 0.18) * uWindAmp;
         vec4 mvPosition = modelViewMatrix * vec4(p, 1.0);
-        gl_PointSize = size * (1.0 / -mvPosition.z) * 120.0;
+        gl_PointSize = size * (1.0 / -mvPosition.z) * 90.0;
         vOpacity = 1.0 - smoothstep(0.0, 0.8, p.y / ${opts.areaHeight.toFixed(2)});
         gl_Position = projectionMatrix * mvPosition;
       }

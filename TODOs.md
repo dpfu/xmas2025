@@ -6,13 +6,13 @@
 - [x] Test interactions on touch devices and with reduced motion preference
 
 ## Scene polish
-- [ ] Rebalance snow readability (sizes/opacity/layers) and monitor performance on low-end devices
-- [ ] Cut foreground snow flakes, shrink sizes, reduce opacity, add clearer depth layers
-- [ ] Calibrate lighting to avoid tree hotspot while keeping depth (key/fill/ambient)
-- [ ] Boost rim/back light for stronger silhouette separation
-- [ ] Refine ground tint/texture to read as snow without beige cast
-- [ ] Shrink podium radius slightly and add soft contact shadow under trunk
-- [ ] Ensure hint placement is unobtrusive and aligned with festive UI styling
+- [x] Rebalance snow readability (sizes/opacity/layers) and monitor performance on low-end devices
+- [x] Cut foreground snow flakes, shrink sizes, reduce opacity, add clearer depth layers
+- [x] Calibrate lighting to avoid tree hotspot while keeping depth (key/fill/ambient)
+- [x] Boost rim/back light for stronger silhouette separation
+- [x] Refine ground tint/texture to read as snow without beige cast
+- [x] Shrink podium radius slightly and add soft contact shadow under trunk
+- [x] Ensure hint placement is unobtrusive and aligned with festive UI styling
 
 ## Spin Rework (new)
 - [x] Replace shake mechanic with spin-up: drag/rotate accelerates the tree

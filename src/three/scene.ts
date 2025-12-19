@@ -258,6 +258,7 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
   let swayVelZ = 0;
   let decoYaw = 0;
   let decoYawVel = 0;
+  let trunkHelper: THREE.BoxHelper | null = null;
 
   function createHaloTexture() {
     const c = document.createElement("canvas");
@@ -462,6 +463,12 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
         (mat as THREE.Material).opacity = 1;
       }
       console.log("[TRUNK visible test]", trunk.visible, (trunk.material as any).transparent);
+      trunk.renderOrder = 30;
+      trunk.frustumCulled = false;
+      trunkHelper = new THREE.BoxHelper(trunk, 0xff00ff);
+      (trunkHelper.material as THREE.Material).depthTest = false;
+      trunkHelper.renderOrder = 31;
+      scene.add(trunkHelper);
     }
 
     const star = findByName(model, "group1533398606") as THREE.Mesh | null;
@@ -858,6 +865,7 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
     }
 
     if (debugVisible) updateDebugHelpers();
+    if (trunkHelper) trunkHelper.update();
   };
 
   return {

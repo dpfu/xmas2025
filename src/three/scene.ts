@@ -2,13 +2,8 @@ import * as THREE from "three";
 import { TREE_MODEL_URL, GIFT_MODEL_URL } from "../config/assets";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { createSnowLayer, type SnowLayer } from "./snow";
-
-const BASE_STAGE = {
-  groundY: 0.28,
-  treeX: 0.45,
-  treeZ: 0,
-  giftOffset: new THREE.Vector3(0.6, 0.18, 0.45),
-};
+import { STAGE, getLayoutMode } from "../config/layout";
+import { frameObjectToCamera } from "./frame";
 
 export type SceneHandles = {
   renderer: THREE.WebGLRenderer;
@@ -34,13 +29,16 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
   const debugHelpers: THREE.Object3D[] = [];
   let debugVisible = false;
 
-  const isPortrait = window.innerHeight > window.innerWidth;
+  let mode = getLayoutMode();
+  const isPortrait = () => mode === "portrait";
   const stage = {
-    ...BASE_STAGE,
-    treeX: isPortrait ? 0.25 : BASE_STAGE.treeX,
+    groundY: STAGE.groundY,
+    targetY: STAGE.targetY,
+    treeX: isPortrait() ? STAGE.mobile.treeX : STAGE.desktop.treeX,
+    treeZ: isPortrait() ? STAGE.mobile.treeZ : STAGE.desktop.treeZ,
   };
 
-  const camera = new THREE.PerspectiveCamera(isPortrait ? 36 : 32, 1, 0.1, 100);
+  const camera = new THREE.PerspectiveCamera(isPortrait() ? 36 : 32, 1, 0.1, 100);
   camera.position.set(0, 1.2, 4.2);
 
   const key = new THREE.DirectionalLight(0xddeeff, 1.05);
@@ -60,30 +58,30 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
 
   // Snow podium
   const podium = new THREE.Mesh(
-    new THREE.CylinderGeometry(2.1, 2.2, 0.24, 64),
+    new THREE.CylinderGeometry(1.8, 1.9, 0.18, 64),
     new THREE.MeshStandardMaterial({ color: 0xeef2f8, roughness: 0.96, metalness: 0.0 })
   );
-  podium.position.y = stage.groundY - 0.14;
+  podium.position.y = stage.groundY - 0.12;
   scene.add(podium);
 
   const top = new THREE.Mesh(
-    new THREE.CylinderGeometry(2.0, 2.0, 0.05, 64),
+    new THREE.CylinderGeometry(1.7, 1.7, 0.04, 64),
     new THREE.MeshStandardMaterial({ color: 0xf9fbff, roughness: 1.0 })
   );
-  top.position.y = stage.groundY - 0.05;
+  top.position.y = stage.groundY - 0.04;
   scene.add(top);
 
   const rim = new THREE.Mesh(
-    new THREE.TorusGeometry(2.02, 0.03, 10, 80),
+    new THREE.TorusGeometry(1.72, 0.025, 10, 80),
     new THREE.MeshStandardMaterial({ color: 0xdfe4ed, roughness: 1.0 })
   );
   rim.rotation.x = Math.PI / 2;
-  rim.position.y = stage.groundY - 0.05;
+  rim.position.y = stage.groundY - 0.04;
   scene.add(rim);
 
   const treeGroup = new THREE.Group();
   treeGroup.position.set(stage.treeX, stage.groundY, stage.treeZ);
-  treeGroup.scale.setScalar(1.05);
+  treeGroup.scale.setScalar(1.0);
   scene.add(treeGroup);
 
   const shadowTex = new THREE.CanvasTexture((() => {
@@ -111,22 +109,18 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
   const jiggleTargets: { obj: THREE.Object3D; baseY: number; baseRotZ: number; phase: number }[] = [];
   const baseCamPos = camera.position.clone();
   const revealCamPos = new THREE.Vector3(0, 1.1, 2.8);
-  const lookTarget = new THREE.Vector3(stage.treeX, 1.1, stage.treeZ);
+  const lookTarget = new THREE.Vector3(stage.treeX, STAGE.targetY, stage.treeZ);
 
   function frameObject(obj: THREE.Object3D) {
-    const box = new THREE.Box3().setFromObject(obj);
-    const size = new THREE.Vector3();
-    box.getSize(size);
-    const center = new THREE.Vector3();
-    box.getCenter(center);
-
-    const padding = isPortrait ? 1.2 : 1.1;
-    const height = size.y * padding;
-    const vFov = (camera.fov * Math.PI) / 180;
-    const dist = Math.max((height / 2) / Math.tan(vFov / 2), isPortrait ? 3.9 : 3.6);
-    camera.position.z = THREE.MathUtils.clamp(dist, isPortrait ? 3.9 : 3.6, isPortrait ? 5.3 : 5.0);
-    camera.position.x = 0;
-    camera.position.y = center.y + 0.2;
+    frameObjectToCamera({
+      camera,
+      object: obj,
+      target: new THREE.Vector3(stage.treeX, STAGE.targetY, stage.treeZ),
+      fov: isPortrait() ? 36 : 32,
+      padding: isPortrait() ? 1.3 : 1.18,
+      minDist: isPortrait() ? 4.0 : 3.9,
+      maxDist: 6.0,
+    });
   }
 
   // Load tree model
@@ -250,7 +244,7 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
   // gift placement synced to tree position
   function updateGiftAnchor() {
     giftGroup.position.copy(new THREE.Vector3(stage.treeX, stage.groundY, stage.treeZ)).add(
-      new THREE.Vector3(BASE_STAGE.giftOffset.x, BASE_STAGE.giftOffset.y, BASE_STAGE.giftOffset.z)
+      new THREE.Vector3(STAGE.giftOffset.x, STAGE.giftOffset.y, STAGE.giftOffset.z)
     );
     giftGroup.position.y = stage.groundY + giftHalfHeight;
   }
@@ -260,6 +254,11 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
     renderer.setSize(w, h, false);
+    mode = getLayoutMode();
+    stage.treeX = isPortrait() ? STAGE.mobile.treeX : STAGE.desktop.treeX;
+    stage.treeZ = isPortrait() ? STAGE.mobile.treeZ : STAGE.desktop.treeZ;
+    treeGroup.position.set(stage.treeX, stage.groundY, stage.treeZ);
+    lookTarget.set(stage.treeX, STAGE.targetY, stage.treeZ);
     if (treeGroup.children.length > 0) frameObject(treeGroup);
   };
 

@@ -29,6 +29,8 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.setClearColor(0x000000, 0);
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.08;
 
   const scene = new THREE.Scene();
   const snowLayers: SnowLayer[] = [];
@@ -68,19 +70,23 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
   camera.position.set(0, 1.2, 4.2);
 
   const key = new THREE.DirectionalLight(0xddeeff, 1.05);
-  key.position.set(3, 6, 2);
+  key.position.set(3.5, 5.5, 2.5);
   scene.add(key);
 
-  const fill = new THREE.DirectionalLight(0xcfe6ff, 0.35);
-  fill.position.set(-4, 2.5, -2);
+  const fill = new THREE.DirectionalLight(0xffffff, 0.25);
+  fill.position.set(-3, 2.5, 2);
   scene.add(fill);
 
-  const amb = new THREE.AmbientLight(0xffffff, 0.45);
+  const amb = new THREE.AmbientLight(0xffffff, 0.28);
   scene.add(amb);
 
-  const spot = new THREE.PointLight(0xffe7d6, 0.35, 18);
+  const spot = new THREE.PointLight(0xffe7d6, 0.25, 18);
   spot.position.set(0, 2.2, -3.5);
   scene.add(spot);
+
+  const rim = new THREE.DirectionalLight(0xe8f4ff, 0.85);
+  rim.position.set(-3.5, 2.2, -3.0);
+  scene.add(rim);
 
   // Snow podium
   const podium = new THREE.Mesh(
@@ -136,6 +142,34 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
   const baseCamPos = camera.position.clone();
   const revealCamPos = new THREE.Vector3(0, 1.1, 2.8);
   const lookTarget = new THREE.Vector3(stage.treeX, STAGE.targetY, stage.treeZ);
+  let starMesh: THREE.Mesh | null = null;
+  let starHalo: THREE.Sprite | null = null;
+  let starPulse = 0;
+  const starWorldPos = new THREE.Vector3();
+  const haloOffset = new THREE.Vector3(0, 0.05, 0.06);
+
+  function createHaloTexture() {
+    const c = document.createElement("canvas");
+    c.width = 128;
+    c.height = 128;
+    const ctx = c.getContext("2d");
+    if (!ctx) return c;
+    const g = ctx.createRadialGradient(64, 64, 4, 64, 64, 60);
+    g.addColorStop(0, "rgba(255, 234, 170, 0.9)");
+    g.addColorStop(0.35, "rgba(255, 211, 106, 0.45)");
+    g.addColorStop(1, "rgba(255, 211, 106, 0)");
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, 128, 128);
+    return c;
+  }
+
+  function findByName(root: THREE.Object3D, name: string): THREE.Object3D | null {
+    let hit: THREE.Object3D | null = null;
+    root.traverse((o) => {
+      if (o.name === name) hit = o;
+    });
+    return hit;
+  }
 
   function updateTreeBounds() {
     treeBounds.box.setFromObject(treeGroup);
@@ -177,6 +211,44 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
 
     model.position.y = targetHeight / 2 - 0.05;
     treeGroup.add(model);
+
+    model.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (!(mesh as any).isMesh || !mesh.material) return;
+      const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      for (const m of mats) {
+        const mat = m as THREE.MeshStandardMaterial;
+        if ("roughness" in mat) mat.roughness = Math.min(mat.roughness ?? 1, 0.85);
+        if ("metalness" in mat) mat.metalness = Math.max(mat.metalness ?? 0, 0.05);
+      }
+    });
+
+    const star = findByName(model, "group1533398606") as THREE.Mesh | null;
+    if (star && (star as any).isMesh) {
+      const mat = star.material as THREE.MeshStandardMaterial;
+      if (!("emissive" in mat)) {
+        star.material = new THREE.MeshStandardMaterial({ color: 0xffd36a });
+      }
+      const sm = star.material as THREE.MeshStandardMaterial;
+      sm.color.set("#f5d36a");
+      sm.emissive.set("#ffd36a");
+      sm.emissiveIntensity = 1.1;
+      starMesh = star;
+
+      const haloTex = new THREE.CanvasTexture(createHaloTexture());
+      haloTex.colorSpace = THREE.SRGBColorSpace;
+      const haloMat = new THREE.SpriteMaterial({
+        map: haloTex,
+        transparent: true,
+        opacity: 0.55,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      });
+      starHalo = new THREE.Sprite(haloMat);
+      starHalo.scale.setScalar(0.35);
+      starHalo.position.copy(haloOffset);
+      star.add(starHalo);
+    }
 
     model.traverse((o) => {
       // Collect meshes for subtle jiggle when shaking; heuristic keeps it lightweight
@@ -311,6 +383,7 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
     camLerp = 0;
     treeGroup.visible = false;
     updateGiftAnchor();
+    starPulse = 0.3;
   };
 
   const hideGift = () => {
@@ -486,6 +559,22 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
     }
 
     camera.lookAt(lookTarget);
+
+    if (starMesh && (starMesh.material as any)?.emissive) {
+      const t = performance.now() * 0.001;
+      starPulse = Math.max(0, starPulse - dt);
+      const pulse = 1.0 + Math.sin(t * 1.6) * 0.25;
+      const spark = starPulse > 0 ? 0.6 : 0;
+      (starMesh.material as THREE.MeshStandardMaterial).emissiveIntensity = 1.05 * pulse + spark;
+    }
+    if (starMesh && starHalo) {
+      const pulse = 0.8 + Math.sin(performance.now() * 0.0016) * 0.2;
+      starMesh.getWorldPosition(starWorldPos);
+      const dist = camera.position.distanceTo(starWorldPos);
+      const scale = THREE.MathUtils.clamp(dist * 0.08, 0.22, 0.55);
+      starHalo.scale.setScalar(scale);
+      (starHalo.material as THREE.SpriteMaterial).opacity = 0.45 + pulse * 0.25;
+    }
 
     for (const layer of snowLayers) {
       layer.update(dt);

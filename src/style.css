@@ -12,8 +12,8 @@ body::before {
   inset: 0;
   pointer-events: none;
   background:
-    radial-gradient(circle at 55% 30%, rgba(255,255,255,0.06), rgba(0,0,0,0.55) 75%),
-    linear-gradient(180deg, rgba(0,0,0,0.08), rgba(0,0,0,0.22));
+    radial-gradient(circle at 55% 35%, rgba(255,255,255,0.05), rgba(0,0,0,0.58) 75%),
+    linear-gradient(180deg, rgba(0,0,0,0.12), rgba(0,0,0,0.28));
 }
 
 #hint {

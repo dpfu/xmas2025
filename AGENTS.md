@@ -13,6 +13,7 @@ Digital holiday greeting: low-poly tree you can rotate/shake to reveal curated a
 - Spin-up interaction triggers gift reveal; keep animations lightweight (no heavy physics libs)
 - Prioritize stable performance on desktop + mobile; fast initial load
 - Keep UI minimal: avoid HUD/buttons; rely on in-scene cues and subtle hints
+- Any debug tooling must be toggleable via URL/query or keypress and stay invisible by default
 - Use git for all changes; keep commits focused and small to enable safe iteration
 
 ## Art / Assets
@@ -24,3 +25,4 @@ Digital holiday greeting: low-poly tree you can rotate/shake to reveal curated a
 - Tests mouse + touch interactions
 - Ensures readable typography and decent contrast
 - Checks “reduced motion” preferences and provides a calmer mode
+- Add small unit tests for layout/framing math; keep test stack minimal

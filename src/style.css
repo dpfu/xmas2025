@@ -71,6 +71,26 @@ body::before {
   box-shadow: 0 20px 40px rgba(0,0,0,0.35);
 }
 
+.debug-panel {
+  position: fixed;
+  top: 14px;
+  left: 14px;
+  z-index: 6;
+  white-space: pre;
+  font: 12px/1.4 "SFMono-Regular", ui-monospace, "Cascadia Mono", "DejaVu Sans Mono", monospace;
+  color: #ecf1f7;
+  background: rgba(2, 6, 23, 0.72);
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 10px;
+  padding: 10px 12px;
+  max-width: min(360px, 92vw);
+  box-shadow: 0 12px 30px rgba(0,0,0,0.35);
+  backdrop-filter: blur(6px);
+}
+.debug-panel.hidden {
+  display: none;
+}
+
 @media (prefers-reduced-motion: reduce) {
   /* You can disable auto-rotation here later if you want */
 }

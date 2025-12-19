@@ -23,6 +23,16 @@ npm run build
 npm run preview
 ```
 
+Tests:
+```bash
+npm test
+npm run test:watch
+```
+
+Debug:
+- Add `?debug=1` to the URL to enable the debug panel and persist it in localStorage.
+- Press `i` to toggle the info panel, `d` to toggle in-scene helpers.
+
 ## Add your 3D tree model
 Put a GLB/GLTF model here:
 ```

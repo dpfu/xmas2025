@@ -5,9 +5,9 @@ export function getLayoutMode(): LayoutMode {
 }
 
 export const STAGE = {
-  groundY: 0.22,
-  targetY: 1.15,
-  desktop: { treeX: 0.42, treeZ: 0 },
-  mobile: { treeX: 0.2, treeZ: 0 },
+  groundY: 0.12,
+  targetY: 0.9,
+  desktop: { treeX: 0.35, treeZ: 0 },
+  mobile: { treeX: 0.15, treeZ: 0 },
   giftOffset: { x: 0.6, y: 0.18, z: 0.45 },
 };

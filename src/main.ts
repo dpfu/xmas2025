@@ -27,6 +27,11 @@ let music: HTMLAudioElement | null = null;
 let shakeSfx: HTMLAudioElement | null = null;
 let giftSfx: HTMLAudioElement | null = null;
 
+const debugParam = new URLSearchParams(window.location.search).has("debug");
+const debugStored = window.localStorage.getItem("treeDebug") === "1";
+const debugEnabled = debugParam || debugStored;
+if (debugParam) window.localStorage.setItem("treeDebug", "1");
+
 function pickVoucher(): Voucher {
   return VOUCHERS[Math.floor(Math.random() * VOUCHERS.length)];
 }
@@ -95,6 +100,23 @@ modal.addEventListener("click", (e) => {
 (async () => {
   const handles = await createScene(canvas);
   let debugVisible = false;
+  let infoVisible = debugEnabled;
+  let infoEl: HTMLDivElement | null = null;
+
+  const ensureInfoOverlay = () => {
+    if (infoEl) return;
+    infoEl = document.createElement("div");
+    infoEl.className = "debug-panel";
+    document.body.appendChild(infoEl);
+  };
+
+  const setInfoVisible = (on: boolean) => {
+    infoVisible = on;
+    if (infoVisible) ensureInfoOverlay();
+    if (infoEl) infoEl.classList.toggle("hidden", !infoVisible);
+  };
+
+  if (debugEnabled) setInfoVisible(true);
 
   // Resize
   const resize = () => {
@@ -201,6 +223,9 @@ modal.addEventListener("click", (e) => {
         (handles as any).toggleDebug(debugVisible);
       }
     }
+    if (e.key === "i" || e.key === "I") {
+      setInfoVisible(!infoVisible);
+    }
   });
 
   // Main loop
@@ -236,6 +261,17 @@ modal.addEventListener("click", (e) => {
     }
 
     handles.update(dt);
+    if (infoVisible && infoEl && handles.getDebugState) {
+      const s = handles.getDebugState();
+      infoEl.textContent =
+        `Debug info (i: toggle panel, d: helpers)\n` +
+        `cam: (${s.camera.x.toFixed(2)}, ${s.camera.y.toFixed(2)}, ${s.camera.z.toFixed(2)}) fov ${s.camera.fov.toFixed(1)} aspect ${s.camera.aspect.toFixed(2)}\n` +
+        `target: (${s.target.x.toFixed(2)}, ${s.target.y.toFixed(2)}, ${s.target.z.toFixed(2)})\n` +
+        `tree center: (${s.treeBounds.center.x.toFixed(2)}, ${s.treeBounds.center.y.toFixed(2)}, ${s.treeBounds.center.z.toFixed(2)})\n` +
+        `tree size: (${s.treeBounds.size.x.toFixed(2)}, ${s.treeBounds.size.y.toFixed(2)}, ${s.treeBounds.size.z.toFixed(2)})\n` +
+        `stage: groundY ${s.stage.groundY.toFixed(2)} treeX ${s.stage.treeX.toFixed(2)} treeZ ${s.stage.treeZ.toFixed(2)}\n` +
+        `dt: ${(dt * 1000).toFixed(1)}ms`;
+    }
     handles.renderer.render(handles.scene, handles.camera);
     requestAnimationFrame(loop);
   };

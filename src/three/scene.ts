@@ -16,6 +16,12 @@ export type SceneHandles = {
   hideGift: () => void;
   setSize: (w: number, h: number) => void;
   toggleDebug?: (on: boolean) => void;
+  getDebugState?: () => {
+    camera: { x: number; y: number; z: number; fov: number; aspect: number };
+    target: { x: number; y: number; z: number };
+    treeBounds: { center: { x: number; y: number; z: number }; size: { x: number; y: number; z: number } };
+    stage: { groundY: number; treeX: number; treeZ: number };
+  };
   update: (dt: number) => void;
 };
 
@@ -499,6 +505,24 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
     hideGift,
     setSize,
     toggleDebug: setDebug,
+    getDebugState: () => {
+      updateTreeBounds();
+      return {
+        camera: {
+          x: camera.position.x,
+          y: camera.position.y,
+          z: camera.position.z,
+          fov: camera.fov,
+          aspect: camera.aspect,
+        },
+        target: { x: lookTarget.x, y: lookTarget.y, z: lookTarget.z },
+        treeBounds: {
+          center: { x: treeBounds.center.x, y: treeBounds.center.y, z: treeBounds.center.z },
+          size: { x: treeBounds.size.x, y: treeBounds.size.y, z: treeBounds.size.z },
+        },
+        stage: { groundY: stage.groundY, treeX: stage.treeX, treeZ: stage.treeZ },
+      };
+    },
     update,
   };
 }

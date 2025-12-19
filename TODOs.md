@@ -7,8 +7,11 @@
 
 ## Scene polish
 - [ ] Rebalance snow readability (sizes/opacity/layers) and monitor performance on low-end devices
+- [ ] Cut foreground snow flakes, shrink sizes, reduce opacity, add clearer depth layers
 - [ ] Calibrate lighting to avoid tree hotspot while keeping depth (key/fill/ambient)
+- [ ] Boost rim/back light for stronger silhouette separation
 - [ ] Refine ground tint/texture to read as snow without beige cast
+- [ ] Shrink podium radius slightly and add soft contact shadow under trunk
 - [ ] Ensure hint placement is unobtrusive and aligned with festive UI styling
 
 ## Spin Rework (new)

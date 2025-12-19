@@ -118,9 +118,9 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
     const ctx = c.getContext("2d");
     if (!ctx) return c;
     const g = ctx.createLinearGradient(0, 255, 0, 0);
-    g.addColorStop(0.0, "rgba(255,255,255,1.0)");
-    g.addColorStop(0.60, "rgba(255,255,255,1.0)");
-    g.addColorStop(1.0, "rgba(255,255,255,0.0)");
+    g.addColorStop(0.0, "rgb(255,255,255)");
+    g.addColorStop(0.55, "rgb(255,255,255)");
+    g.addColorStop(1.0, "rgb(0,0,0)");
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, c.width, c.height);
     const tex = new THREE.CanvasTexture(c);
@@ -129,6 +129,7 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
     tex.minFilter = THREE.LinearFilter;
     tex.magFilter = THREE.LinearFilter;
     tex.generateMipmaps = false;
+    (tex as any).colorSpace = THREE.NoColorSpace;
     tex.needsUpdate = true;
     return tex;
   }
@@ -176,6 +177,7 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
     depthWrite: (ground.material as any).depthWrite,
     hasAlphaMap: !!(ground.material as any).alphaMap,
   });
+  console.log("[GROUND alphaMap test] expected: bottom white, top black");
 
   const treeGroup = new THREE.Group();
   treeGroup.position.set(stage.treeX, stage.groundY, stage.treeZ);

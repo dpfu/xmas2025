@@ -84,9 +84,9 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
   spot.position.set(0, 2.2, -3.5);
   scene.add(spot);
 
-  const rim = new THREE.DirectionalLight(0xe8f4ff, 0.85);
-  rim.position.set(-3.5, 2.2, -3.0);
-  scene.add(rim);
+  const rimLight = new THREE.DirectionalLight(0xe8f4ff, 0.85);
+  rimLight.position.set(-3.5, 2.2, -3.0);
+  scene.add(rimLight);
 
   // Snow podium
   const podium = new THREE.Mesh(
@@ -147,6 +147,8 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
   let starPulse = 0;
   const starWorldPos = new THREE.Vector3();
   const haloOffset = new THREE.Vector3(0, 0.05, 0.06);
+  const flameSprites: { sprite: THREE.Sprite; baseScale: THREE.Vector2; phase: number }[] = [];
+  let flameLight: THREE.PointLight | null = null;
 
   function createHaloTexture() {
     const c = document.createElement("canvas");
@@ -163,12 +165,88 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
     return c;
   }
 
+  function createFlameTexture() {
+    const c = document.createElement("canvas");
+    c.width = 64;
+    c.height = 64;
+    const ctx = c.getContext("2d");
+    if (!ctx) return c;
+    const g = ctx.createRadialGradient(32, 40, 2, 32, 40, 28);
+    g.addColorStop(0, "rgba(255, 213, 138, 0.95)");
+    g.addColorStop(0.45, "rgba(255, 159, 58, 0.55)");
+    g.addColorStop(1, "rgba(255, 159, 58, 0)");
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, 64, 64);
+    return c;
+  }
+
   function findByName(root: THREE.Object3D, name: string): THREE.Object3D | null {
     let hit: THREE.Object3D | null = null;
     root.traverse((o) => {
       if (o.name === name) hit = o;
     });
     return hit;
+  }
+
+  function addCandleFlames(model: THREE.Object3D) {
+    const wick = findByName(model, "mesh1356770401_17") as THREE.Mesh | null;
+    if (!wick || !(wick as any).isMesh) return;
+    const geom = wick.geometry as THREE.BufferGeometry;
+    const posAttr = geom.getAttribute("position") as THREE.BufferAttribute | null;
+    if (!posAttr) return;
+
+    const worldBox = new THREE.Box3().setFromObject(wick);
+    const yMin = worldBox.min.y;
+    const yMax = worldBox.max.y;
+    const yCut = yMin + (yMax - yMin) * 0.7;
+    const point = new THREE.Vector3();
+    const buckets = new Map<string, { sum: THREE.Vector3; count: number }>();
+    const cell = 0.22;
+
+    for (let i = 0; i < posAttr.count; i++) {
+      point.fromBufferAttribute(posAttr, i);
+      wick.localToWorld(point);
+      if (point.y < yCut) continue;
+      const key = `${Math.floor(point.x / cell)}:${Math.floor(point.z / cell)}`;
+      const bucket = buckets.get(key);
+      if (bucket) {
+        bucket.sum.add(point);
+        bucket.count += 1;
+      } else {
+        buckets.set(key, { sum: point.clone(), count: 1 });
+      }
+    }
+
+    if (buckets.size === 0) return;
+    const flameTex = new THREE.CanvasTexture(createFlameTexture());
+    flameTex.colorSpace = THREE.SRGBColorSpace;
+    const flameMat = new THREE.SpriteMaterial({
+      map: flameTex,
+      transparent: true,
+      opacity: 0.8,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+
+    for (const bucket of buckets.values()) {
+      const center = bucket.sum.multiplyScalar(1 / bucket.count);
+      const local = model.worldToLocal(center.clone());
+      const sprite = new THREE.Sprite(flameMat.clone());
+      sprite.position.copy(local).add(new THREE.Vector3(0, 0.06, 0));
+      sprite.scale.set(0.1, 0.16, 1);
+      model.add(sprite);
+      flameSprites.push({
+        sprite,
+        baseScale: new THREE.Vector2(0.1, 0.16),
+        phase: Math.random() * Math.PI * 2,
+      });
+    }
+
+    if (!flameLight) {
+      flameLight = new THREE.PointLight(0xffb24a, 0.45, 5);
+      flameLight.position.set(stage.treeX, stage.groundY + 1.4, stage.treeZ);
+      scene.add(flameLight);
+    }
   }
 
   function updateTreeBounds() {
@@ -249,6 +327,8 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
       starHalo.position.copy(haloOffset);
       star.add(starHalo);
     }
+
+    addCandleFlames(model);
 
     model.traverse((o) => {
       // Collect meshes for subtle jiggle when shaking; heuristic keeps it lightweight
@@ -365,6 +445,9 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
     stage.treeX = isPortrait() ? STAGE.mobile.treeX : STAGE.desktop.treeX;
     stage.treeZ = isPortrait() ? STAGE.mobile.treeZ : STAGE.desktop.treeZ;
     treeGroup.position.set(stage.treeX, stage.groundY, stage.treeZ);
+    if (flameLight) {
+      flameLight.position.set(stage.treeX, stage.groundY + 1.4, stage.treeZ);
+    }
     if (treeGroup.children.length > 0) frameObject();
   };
 
@@ -574,6 +657,19 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
       const scale = THREE.MathUtils.clamp(dist * 0.08, 0.22, 0.55);
       starHalo.scale.setScalar(scale);
       (starHalo.material as THREE.SpriteMaterial).opacity = 0.45 + pulse * 0.25;
+    }
+    if (flameSprites.length > 0) {
+      const t = performance.now() * 0.001;
+      for (const flame of flameSprites) {
+        const flicker = Math.sin(t * 7 + flame.phase) * 0.15 + Math.sin(t * 11 + flame.phase) * 0.07;
+        const mat = flame.sprite.material as THREE.SpriteMaterial;
+        mat.opacity = 0.75 + flicker;
+        flame.sprite.scale.set(
+          flame.baseScale.x,
+          flame.baseScale.y * (0.9 + Math.sin(t * 8 + flame.phase) * 0.12),
+          1
+        );
+      }
     }
 
     for (const layer of snowLayers) {

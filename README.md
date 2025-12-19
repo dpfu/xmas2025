@@ -36,7 +36,7 @@ Debug:
 ## Add your 3D tree model
 Put a GLB/GLTF model here:
 ```
-public/assets/tree.glb
+public/assets/tree-ed.glb
 ```
 
 Then edit `src/config/assets.ts` if you change the filename.

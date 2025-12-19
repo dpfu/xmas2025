@@ -261,6 +261,7 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
   let trunkHelper: THREE.BoxHelper | null = null;
   let trunkMarker: THREE.Mesh | null = null;
   const trunkWorldPos = new THREE.Vector3();
+  let trunkMesh: THREE.Mesh | null = null;
 
   function createHaloTexture() {
     const c = document.createElement("canvas");
@@ -410,18 +411,18 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
     model.position.y += -scaledBox.min.y;
     rig.add(model);
 
-    const trunk = findMeshByName(model, "mesh1356770401_1");
-    if (trunk) {
-      const m: any = trunk.material;
+    trunkMesh = findMeshByName(model, "mesh1356770401_1");
+    if (trunkMesh) {
+      const m: any = trunkMesh.material;
       console.log("[TRUNK]", {
-        name: trunk.name,
+        name: trunkMesh.name,
         matType: m?.type,
         color: m?.color?.getHexString?.(),
         roughness: m?.roughness,
         metalness: m?.metalness,
         emissive: m?.emissive?.getHexString?.(),
       });
-      console.log("[TRUNK world]", trunk.getWorldPosition(new THREE.Vector3()).toArray());
+      console.log("[TRUNK world]", trunkMesh.getWorldPosition(new THREE.Vector3()).toArray());
     } else {
       console.warn("[TRUNK] not found");
     }
@@ -449,32 +450,32 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
       }
     });
 
-    if (trunk) {
+    if (trunkMesh) {
       const trunkMat = new THREE.MeshStandardMaterial({
         color: "#5b3b2f",
         roughness: 0.9,
         metalness: 0.0,
       });
       trunkMat.fog = false;
-      trunk.material = trunkMat;
-      console.log("[TRUNK fog disabled]", { fog: (trunk.material as any).fog });
-      trunk.visible = true;
-      const mats = Array.isArray(trunk.material) ? trunk.material : [trunk.material];
+      trunkMesh.material = trunkMat;
+      console.log("[TRUNK fog disabled]", { fog: (trunkMesh.material as any).fog });
+      trunkMesh.visible = true;
+      const mats = Array.isArray(trunkMesh.material) ? trunkMesh.material : [trunkMesh.material];
       for (const mat of mats) {
         (mat as THREE.Material).transparent = false;
         (mat as THREE.Material).opacity = 1;
       }
-      console.log("[TRUNK visible test]", trunk.visible, (trunk.material as any).transparent);
-      trunk.renderOrder = 30;
-      trunk.frustumCulled = false;
-      trunkHelper = new THREE.BoxHelper(trunk, 0xff00ff);
+      console.log("[TRUNK visible test]", trunkMesh.visible, (trunkMesh.material as any).transparent);
+      trunkMesh.renderOrder = 30;
+      trunkMesh.frustumCulled = false;
+      trunkHelper = new THREE.BoxHelper(trunkMesh, 0xff00ff);
       (trunkHelper.material as THREE.Material).depthTest = false;
       trunkHelper.renderOrder = 31;
       scene.add(trunkHelper);
-      trunk.getWorldPosition(trunkWorldPos);
-      console.log("[TRUNK scale]", trunk.scale.toArray());
+      trunkMesh.getWorldPosition(trunkWorldPos);
+      console.log("[TRUNK scale]", trunkMesh.scale.toArray());
       console.log("[TRUNK world]", trunkWorldPos.toArray());
-      const trunkBox = new THREE.Box3().setFromObject(trunk);
+      const trunkBox = new THREE.Box3().setFromObject(trunkMesh);
       const trunkSize = new THREE.Vector3();
       trunkBox.getSize(trunkSize);
       console.log("[TRUNK size]", trunkSize.toArray());
@@ -524,7 +525,7 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
       if ((o as any).isMesh) meshes.push(o as THREE.Mesh);
     });
     for (const mesh of meshes) {
-      if (mesh === trunk) {
+      if (mesh === trunkMesh) {
         trunkGroup.attach(mesh);
       } else if (mesh === crown || mesh === star) {
         crownGroup.attach(mesh);
@@ -882,8 +883,8 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
 
     if (debugVisible) updateDebugHelpers();
     if (trunkHelper) trunkHelper.update();
-    if (trunkMarker && trunk) {
-      trunk.getWorldPosition(trunkWorldPos);
+    if (trunkMarker && trunkMesh) {
+      trunkMesh.getWorldPosition(trunkWorldPos);
       trunkMarker.position.copy(trunkWorldPos);
     }
   };

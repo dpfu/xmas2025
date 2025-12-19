@@ -173,7 +173,7 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
   );
   ground.rotation.x = -Math.PI / 2;
   ground.position.set(stage.treeX, stage.groundY - 0.06, stage.treeZ - 0.6);
-  ground.renderOrder = 0;
+  ground.renderOrder = 10;
   scene.add(ground);
   console.log("[GROUND]", {
     hasUV: !!ground.geometry.attributes.uv,
@@ -186,7 +186,7 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
   const treeGroup = new THREE.Group();
   treeGroup.position.set(stage.treeX, stage.groundY, stage.treeZ);
   treeGroup.scale.setScalar(1.0);
-  treeGroup.renderOrder = 1;
+  treeGroup.renderOrder = 20;
   scene.add(treeGroup);
 
   const rig = new THREE.Group();
@@ -442,17 +442,19 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
         const mat = m as THREE.MeshStandardMaterial;
         if ("roughness" in mat) mat.roughness = Math.min(mat.roughness ?? 1, 0.85);
         if ("metalness" in mat) mat.metalness = Math.max(mat.metalness ?? 0, 0.05);
+        (mat as any).fog = true;
       }
     });
 
     if (trunk) {
       const trunkMat = new THREE.MeshStandardMaterial({
-        color: "#ff00ff",
-        roughness: 0.95,
+        color: "#5b3b2f",
+        roughness: 0.9,
         metalness: 0.0,
       });
       trunkMat.fog = false;
       trunk.material = trunkMat;
+      console.log("[TRUNK fog disabled]", { fog: (trunk.material as any).fog });
     }
 
     const star = findByName(model, "group1533398606") as THREE.Mesh | null;

@@ -225,6 +225,16 @@ modal.addEventListener("click", (e) => {
     if (e.key === "i" || e.key === "I") {
       setInfoVisible(!infoVisible);
     }
+    if (e.key === "f" || e.key === "F") {
+      const s = handles.scene;
+      if (s.fog) {
+        console.log("[FOG] disabling");
+        s.fog = null;
+      } else {
+        console.log("[FOG] enabling");
+        s.fog = new THREE.Fog(0xbcc9d9, 2.8, 10.0);
+      }
+    }
   });
 
   // Main loop

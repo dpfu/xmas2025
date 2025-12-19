@@ -86,7 +86,7 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
   fill.position.set(-3, 2.5, 2);
   scene.add(fill);
 
-  const amb = new THREE.AmbientLight(0xffffff, 0.28);
+  const amb = new THREE.AmbientLight(0xffffff, 0.22);
   scene.add(amb);
 
   const spot = new THREE.PointLight(0xffe7d6, 0.25, 18);
@@ -96,6 +96,10 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
   const rimLight = new THREE.DirectionalLight(0xe8f4ff, 0.95);
   rimLight.position.set(-3.5, 2.2, -3.0);
   scene.add(rimLight);
+
+  const trunkWarm = new THREE.PointLight(0xffc28a, 0.25, 2.5);
+  trunkWarm.position.set(stage.treeX, stage.groundY + 0.6, stage.treeZ + 0.3);
+  scene.add(trunkWarm);
 
   // Snow ground
   const groundGeo = new THREE.PlaneGeometry(20, 20, 128, 128);
@@ -414,9 +418,19 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
         metalness: m?.metalness,
         emissive: m?.emissive?.getHexString?.(),
       });
+      console.log("[TRUNK world]", trunk.getWorldPosition(new THREE.Vector3()).toArray());
     } else {
       console.warn("[TRUNK] not found");
     }
+
+    console.log("[LIGHTS]", {
+      ambient: amb.intensity,
+      key: key.intensity,
+      fill: fill.intensity,
+      rim: rimLight.intensity,
+      spot: spot.intensity,
+      trunkWarm: trunkWarm.intensity,
+    });
 
     model.traverse((o) => {
       if (!o?.isMesh) return;
@@ -432,11 +446,13 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
     });
 
     if (trunk) {
-      trunk.material = new THREE.MeshStandardMaterial({
-        color: "#5b3b2f",
+      const trunkMat = new THREE.MeshStandardMaterial({
+        color: "#ff00ff",
         roughness: 0.95,
         metalness: 0.0,
       });
+      trunkMat.fog = false;
+      trunk.material = trunkMat;
     }
 
     const star = findByName(model, "group1533398606") as THREE.Mesh | null;
@@ -593,6 +609,7 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
     ground.position.set(stage.treeX, stage.groundY - 0.06, stage.treeZ - 0.6);
     shadow.position.set(stage.treeX, stage.groundY + 0.002, stage.treeZ);
     contactShadow.position.set(stage.treeX, stage.groundY + 0.003, stage.treeZ);
+    trunkWarm.position.set(stage.treeX, stage.groundY + 0.6, stage.treeZ + 0.3);
     if (flameLight) {
       flameLight.position.set(stage.treeX, stage.groundY + 1.4, stage.treeZ);
     }

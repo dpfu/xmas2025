@@ -7,6 +7,7 @@ import { downloadBlob } from "./lib/download";
 import { MUSIC_URL, SFX_GIFT_URL, SFX_SHAKE_URL } from "./config/audio";
 
 const canvas = document.getElementById("scene") as HTMLCanvasElement;
+const bg = document.getElementById("bg") as HTMLDivElement | null;
 const modal = document.getElementById("modal") as HTMLDivElement;
 const voucherEl = document.getElementById("voucher") as HTMLDivElement;
 const closeModalBtn = document.getElementById("closeModal") as HTMLButtonElement;
@@ -14,7 +15,6 @@ const revealOverlay = document.getElementById("revealOverlay") as HTMLDivElement
 const hint = document.getElementById("hint") as HTMLDivElement;
 
 let currentVoucher: Voucher | null = null;
-let giftReady = false;
 let spinVelocity = 0;
 let spinCharge = 0;
 let musicStarted = false;
@@ -25,6 +25,8 @@ const pointer = new THREE.Vector2();
 let music: HTMLAudioElement | null = null;
 let shakeSfx: HTMLAudioElement | null = null;
 let giftSfx: HTMLAudioElement | null = null;
+
+type Phase = "IDLE" | "REVEAL" | "DROP" | "PRESENT_READY";
 
 const debugParam = new URLSearchParams(window.location.search).has("debug");
 const debugStored = window.localStorage.getItem("treeDebug") === "1";
@@ -101,6 +103,63 @@ modal.addEventListener("click", (e) => {
   let debugVisible = false;
   let infoVisible = debugEnabled;
   let infoEl: HTMLDivElement | null = null;
+  let phase: Phase = "IDLE";
+  let revealStart = 0;
+  let revealT = 0;
+  const REVEAL_DUR = 900;
+  const BG_Y0 = 50;
+  const BG_Y1 = 42;
+  const BG_SCALE0 = 1.0;
+  const BG_SCALE1 = 1.04;
+
+  const easeInOutCubic = (x: number) => (x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2);
+  const applyReveal = (e: number) => {
+    document.documentElement.style.setProperty("--bgY", `${BG_Y0 + (BG_Y1 - BG_Y0) * e}%`);
+    document.documentElement.style.setProperty("--bgScale", `${BG_SCALE0 + (BG_SCALE1 - BG_SCALE0) * e}`);
+    if (handles.setRevealFactor) handles.setRevealFactor(e);
+  };
+  const setPhase = (next: Phase) => {
+    if (phase === next) return;
+    console.log("[PHASE]", phase, "->", next);
+    phase = next;
+  };
+
+  let present: THREE.Object3D | null = null;
+  const landing = new THREE.Vector3();
+  let vY = 0;
+  const startDrop = () => {
+    const s = handles.getDebugState?.();
+    if (!s) return;
+    const center = new THREE.Vector3(s.treeBounds.center.x, s.treeBounds.center.y, s.treeBounds.center.z);
+    const size = new THREE.Vector3(s.treeBounds.size.x, s.treeBounds.size.y, s.treeBounds.size.z);
+    landing.copy(center).add(new THREE.Vector3(-size.x * 0.6, -size.y * 0.45, size.z * 0.1));
+    landing.y = s.stage.groundY + 0.12;
+
+    present = handles.giftGroup;
+    handles.showGift();
+    present.visible = true;
+    present.position.copy(landing).add(new THREE.Vector3(0, 1.8, 0));
+    present.rotation.set(0, Math.random() * Math.PI * 2, 0);
+    present.scale.setScalar(0.9);
+    vY = 0;
+    const ndc = present.position.clone().project(handles.camera);
+    console.log("[DROP start]", { landing: landing.toArray(), start: present.position.toArray() });
+    console.log("[DROP NDC]", ndc.x, ndc.y);
+  };
+
+  const updateDrop = (dt: number) => {
+    if (!present) return;
+    const g = 6.5;
+    vY += g * dt;
+    present.position.y -= vY * dt;
+    present.rotation.y += dt * 1.2;
+    if (present.position.y <= landing.y) {
+      present.position.y = landing.y;
+      present.position.y += 0.03;
+      setPhase("PRESENT_READY");
+      console.log("[DROP landed]", present.position.toArray());
+    }
+  };
 
   const ensureInfoOverlay = () => {
     if (infoEl) return;
@@ -116,6 +175,9 @@ modal.addEventListener("click", (e) => {
   };
 
   if (debugEnabled) setInfoVisible(true);
+  startMusic();
+  applyReveal(0);
+  if (bg) bg.style.setProperty("--bgImage", 'url("/assets/bg-alt.png")');
 
   // Resize
   const resize = () => {
@@ -150,7 +212,7 @@ modal.addEventListener("click", (e) => {
   const scheduleHint = () => {
     if (hintTimer) window.clearTimeout(hintTimer);
     hintTimer = window.setTimeout(() => {
-      if (!giftReady && !isDragging) setHint("Spin the tree");
+      if (phase === "IDLE" && !isDragging) setHint("Spin the tree");
     }, 2600);
   };
   scheduleHint();
@@ -169,7 +231,7 @@ modal.addEventListener("click", (e) => {
 
   canvas.addEventListener("pointerup", () => {
     isDragging = false;
-    if (!giftReady) scheduleHint();
+    if (phase === "IDLE") scheduleHint();
   });
 
   canvas.addEventListener("pointermove", (e) => {
@@ -195,7 +257,7 @@ modal.addEventListener("click", (e) => {
   });
 
   const handleGiftClick = (event: PointerEvent) => {
-    if (!giftReady) return;
+    if (phase !== "PRESENT_READY") return;
     pointer.x = (event.clientX / window.innerWidth) * 2 - 1;
     pointer.y = -(event.clientY / window.innerHeight) * 2 + 1;
     raycaster.setFromCamera(pointer, handles.camera);
@@ -235,6 +297,21 @@ modal.addEventListener("click", (e) => {
         s.fog = new THREE.Fog(0xbcc9d9, 2.8, 10.0);
       }
     }
+    if (e.key === "b" || e.key === "B") {
+      if ((handles as any).toggleTrunkDoubleSide) {
+        (handles as any).toggleTrunkDoubleSide();
+      }
+    }
+    if (e.key === "z" || e.key === "Z") {
+      if ((handles as any).toggleTrunkDepthTest) {
+        (handles as any).toggleTrunkDepthTest();
+      }
+    }
+    if (e.key === "g" || e.key === "G") {
+      if ((handles as any).toggleEnv) {
+        (handles as any).toggleEnv();
+      }
+    }
   });
 
   // Main loop
@@ -242,6 +319,7 @@ modal.addEventListener("click", (e) => {
   const loop = (now: number) => {
     const dt = Math.min((now - last) / 1000, 0.05);
     last = now;
+    if (!handles.treeGroup?.visible) console.warn("[BUG] treeGroup not visible");
 
     // decay spin charge & cooldown
     spinCharge = Math.max(0, spinCharge * 0.96 - dt * 0.15) + Math.abs(spinVelocity) * dt * 0.8;
@@ -254,15 +332,34 @@ modal.addEventListener("click", (e) => {
       handles.setSpinVelocity(spinVelocity);
     }
 
-    // threshold -> gift ready
-    if (!giftReady && cooldown <= 0 && spinCharge > 1.25) {
-      giftReady = true;
-      startMusic();
-      playSfx(giftSfx);
-      handles.showGift();
-      revealOverlay.classList.remove("hidden");
-      setHint("Tap the present");
-      cooldown = 1.2;
+    if (phase === "REVEAL") {
+      const t = (performance.now() - revealStart) / REVEAL_DUR;
+      revealT = Math.max(0, Math.min(1, t));
+      const e = easeInOutCubic(revealT);
+      applyReveal(e);
+      if (revealT >= 1) {
+        setPhase("DROP");
+        startMusic();
+        playSfx(giftSfx);
+        startDrop();
+        revealOverlay.classList.remove("hidden");
+        cooldown = 1.2;
+      }
+    }
+
+    if (phase === "DROP") {
+      updateDrop(dt);
+      if (phase === "PRESENT_READY") {
+        setHint("Tap the present");
+      }
+    }
+
+    // threshold -> start reveal
+    if (phase === "IDLE" && cooldown <= 0 && spinCharge > 1.25) {
+      setPhase("REVEAL");
+      revealStart = performance.now();
+      revealT = 0;
+      setHint(null);
     }
 
     handles.update(dt);
@@ -277,7 +374,7 @@ modal.addEventListener("click", (e) => {
         `stage: groundY ${s.stage.groundY.toFixed(2)} treeX ${s.stage.treeX.toFixed(2)} treeZ ${s.stage.treeZ.toFixed(2)}\n` +
         `dt: ${(dt * 1000).toFixed(1)}ms`;
     }
-    handles.renderer.render(handles.scene, handles.camera);
+    handles.render();
     requestAnimationFrame(loop);
   };
   requestAnimationFrame(loop);

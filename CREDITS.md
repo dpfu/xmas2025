@@ -5,7 +5,7 @@
 - Xmas Gift by Jeff Larson — [CC-BY 3.0](https://creativecommons.org/licenses/by/3.0/) via Poly Pizza (https://poly.pizza/m/8b5ywSuzte0)
 
 ## Audio
-- Background: “O Tannenbaum” by Dan Lerch — [CC BY-NC-SA](https://creativecommons.org/licenses/by-nc-sa/3.0/)
+- Background: “O Christmas Tree” by Maksym_Dudchyk — Pixabay (https://pixabay.com/music//?utm_source=link-attribution&utm_medium=referral&utm_campaign=music&utm_content=423559)
 - SFX (shake, gift woosh): provided by project owner (source/licensing to be tracked)
 
 ## Libraries

@@ -1,6 +1,10 @@
 import * as THREE from "three";
 import { TREE_MODEL_URL, GIFT_MODEL_URL } from "../config/assets";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
+import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
+import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
+import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
 import { createSnowLayer, type SnowLayer } from "./snow";
 import { STAGE, getLayoutMode } from "../config/layout";
 import { frameObjectToCamera } from "./frame";
@@ -11,11 +15,16 @@ export type SceneHandles = {
   camera: THREE.PerspectiveCamera;
   treeGroup: THREE.Group;
   giftGroup: THREE.Group;
+  render: () => void;
   setSpinVelocity: (v: number) => void;
   showGift: () => void;
   hideGift: () => void;
   setSize: (w: number, h: number) => void;
   toggleDebug?: (on: boolean) => void;
+  toggleTrunkDoubleSide?: () => void;
+  toggleTrunkDepthTest?: () => void;
+  toggleEnv?: () => void;
+  setRevealFactor?: (t: number) => void;
   getDebugState?: () => {
     camera: { x: number; y: number; z: number; fov: number; aspect: number };
     target: { x: number; y: number; z: number };
@@ -34,9 +43,11 @@ export function findMeshByName(root: THREE.Object3D, name: string): THREE.Mesh |
 }
 
 export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandles> {
+  const BLOOM_LAYER = 1;
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.setClearColor(0x000000, 0);
+  renderer.setClearAlpha(0);
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.08;
 
@@ -77,12 +88,13 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
 
   const camera = new THREE.PerspectiveCamera(isPortrait() ? 36 : 32, 1, 0.1, 100);
   camera.position.set(0, 1.2, 4.2);
+  camera.layers.enable(BLOOM_LAYER);
 
-  const key = new THREE.DirectionalLight(0xddeeff, 1.05);
+  const key = new THREE.DirectionalLight(0xffffff, 1.05);
   key.position.set(3.5, 5.5, 2.5);
   scene.add(key);
 
-  const fill = new THREE.DirectionalLight(0xffffff, 0.25);
+  const fill = new THREE.DirectionalLight(0x9db7ff, 0.25);
   fill.position.set(-3, 2.5, 2);
   scene.add(fill);
 
@@ -93,13 +105,20 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
   spot.position.set(0, 2.2, -3.5);
   scene.add(spot);
 
-  const rimLight = new THREE.DirectionalLight(0xe8f4ff, 0.95);
+  const rimLight = new THREE.DirectionalLight(0xffe2a8, 0.95);
   rimLight.position.set(-3.5, 2.2, -3.0);
   scene.add(rimLight);
 
   const trunkWarm = new THREE.PointLight(0xffc28a, 0.25, 2.5);
   trunkWarm.position.set(stage.treeX, stage.groundY + 0.6, stage.treeZ + 0.3);
   scene.add(trunkWarm);
+  const baseLightLevels = {
+    key: key.intensity,
+    fill: fill.intensity,
+    amb: amb.intensity,
+    rim: rimLight.intensity,
+    trunkWarm: trunkWarm.intensity,
+  };
 
   // Snow ground
   const groundGeo = new THREE.PlaneGeometry(20, 20, 128, 128);
@@ -172,7 +191,7 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
     groundMat
   );
   ground.rotation.x = -Math.PI / 2;
-  ground.position.set(stage.treeX, stage.groundY - 0.06, stage.treeZ - 0.6);
+  ground.position.set(stage.treeX, stage.groundY - 0.36, stage.treeZ - 0.6);
   ground.renderOrder = 10;
   scene.add(ground);
   console.log("[GROUND]", {
@@ -188,6 +207,7 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
   treeGroup.scale.setScalar(1.0);
   treeGroup.renderOrder = 20;
   scene.add(treeGroup);
+  treeGroup.visible = true;
 
   const rig = new THREE.Group();
   const trunkGroup = new THREE.Group();
@@ -238,18 +258,82 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
   contactShadow.rotation.x = -Math.PI / 2;
   contactShadow.position.set(stage.treeX, stage.groundY + 0.003, stage.treeZ);
   scene.add(contactShadow);
+  const envObjects: THREE.Object3D[] = [ground, shadow, contactShadow];
+  let envVisible = true;
+  const toggleEnv = () => {
+    envVisible = !envVisible;
+    for (const obj of envObjects) obj.visible = envVisible;
+    console.log("[ENV] visible", envVisible);
+  };
 
   const loader = new GLTFLoader();
+  const bloomLayer = new THREE.Layers();
+  bloomLayer.set(BLOOM_LAYER);
+  const bloomComposer = new EffectComposer(renderer);
+  const bloomRenderPass = new RenderPass(scene, camera);
+  bloomRenderPass.clearColor = new THREE.Color(0x000000);
+  bloomRenderPass.clearAlpha = 0;
+  bloomComposer.renderToScreen = false;
+  bloomComposer.addPass(bloomRenderPass);
+  const bloomPass = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.4, 0.4, 0.85);
+  const baseBloomStrength = bloomPass.strength;
+  bloomComposer.addPass(bloomPass);
+
+  const finalComposer = new EffectComposer(renderer);
+  const finalRenderPass = new RenderPass(scene, camera);
+  finalRenderPass.clearColor = new THREE.Color(0x000000);
+  finalRenderPass.clearAlpha = 0;
+  finalComposer.addPass(finalRenderPass);
+  const finalPass = new ShaderPass(
+    new THREE.ShaderMaterial({
+      uniforms: {
+        baseTexture: { value: null },
+        bloomTexture: { value: bloomComposer.renderTarget2.texture },
+      },
+      vertexShader: `
+        varying vec2 vUv;
+        void main() {
+          vUv = uv;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: `
+        uniform sampler2D baseTexture;
+        uniform sampler2D bloomTexture;
+        varying vec2 vUv;
+        void main() {
+          vec4 base = texture2D(baseTexture, vUv);
+          vec4 bloom = texture2D(bloomTexture, vUv);
+          gl_FragColor = vec4(base.rgb + bloom.rgb, base.a);
+        }
+      `,
+      transparent: true,
+    }),
+    "baseTexture"
+  );
+  finalComposer.addPass(finalPass);
   const baseCamPos = camera.position.clone();
-  const revealCamPos = new THREE.Vector3(0, 1.1, 2.8);
-  const lookTarget = new THREE.Vector3(stage.treeX, STAGE.targetY, stage.treeZ);
+  const revealZoomPos = baseCamPos.clone().add(new THREE.Vector3(0.1, 0.2, 0.7));
+  const LOOK_TARGET_Y_OFFSET = -0.08;
+  const lookTarget = new THREE.Vector3(stage.treeX, STAGE.targetY + LOOK_TARGET_Y_OFFSET, stage.treeZ);
   let starMesh: THREE.Mesh | null = null;
   let starHalo: THREE.Sprite | null = null;
   let starPulse = 0;
   const starWorldPos = new THREE.Vector3();
   const haloOffset = new THREE.Vector3(0, 0.05, 0.06);
   const flameSprites: { sprite: THREE.Sprite; baseScale: THREE.Vector2; phase: number }[] = [];
+  const candleEmissiveMats: THREE.MeshStandardMaterial[] = [];
   let flameLight: THREE.PointLight | null = null;
+  let candleLight: THREE.PointLight | null = null;
+  let starLight: THREE.PointLight | null = null;
+  const baseEmissive = {
+    candle: 1.6,
+    star: 1.8,
+  };
+  const basePointLights = {
+    candle: 0.8,
+    star: 0.6,
+  };
   let yaw = 0;
   let yawVel = 0;
   let swayX = 0;
@@ -258,10 +342,24 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
   let swayVelZ = 0;
   let decoYaw = 0;
   let decoYawVel = 0;
+  let revealFactor = 0;
   let trunkHelper: THREE.BoxHelper | null = null;
   let trunkMarker: THREE.Mesh | null = null;
   const trunkWorldPos = new THREE.Vector3();
   let trunkMesh: THREE.Mesh | null = null;
+  let trunkDoubleSide = false;
+  let trunkNoDepthTest = false;
+
+  const applyTrunkDebug = () => {
+    if (!trunkMesh) return;
+    const mats = Array.isArray(trunkMesh.material) ? trunkMesh.material : [trunkMesh.material];
+    for (const mat of mats) {
+      if (!mat) continue;
+      mat.side = trunkDoubleSide ? THREE.DoubleSide : THREE.FrontSide;
+      mat.depthTest = !trunkNoDepthTest;
+      mat.needsUpdate = true;
+    }
+  };
 
   function createHaloTexture() {
     const c = document.createElement("canvas");
@@ -352,6 +450,7 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
       const sprite = new THREE.Sprite(flameMat.clone());
       sprite.position.copy(local).add(new THREE.Vector3(0, 0.06, 0));
       sprite.scale.set(0.1, 0.16, 1);
+      sprite.layers.enable(BLOOM_LAYER);
       target.add(sprite);
       flameSprites.push({
         sprite,
@@ -365,6 +464,12 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
       flameLight.position.set(stage.treeX, stage.groundY + 1.4, stage.treeZ);
       scene.add(flameLight);
     }
+
+    if (!candleLight) {
+      candleLight = new THREE.PointLight(0xffc36a, basePointLights.candle, 2.5);
+      candleLight.position.set(stage.treeX, stage.groundY + 1.0, stage.treeZ);
+      scene.add(candleLight);
+    }
   }
 
   function updateTreeBounds() {
@@ -376,6 +481,7 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
   function frameObject() {
     updateTreeBounds();
     lookTarget.copy(treeBounds.center);
+    lookTarget.y += LOOK_TARGET_Y_OFFSET;
     frameObjectToCamera({
       camera,
       object: treeGroup,
@@ -401,7 +507,7 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
     box.getCenter(center);
 
     model.position.sub(center);
-    const targetHeight = 2.2;
+    const targetHeight = 1.65;
     const scale = targetHeight / Math.max(size.y, 0.001);
     model.scale.setScalar(scale);
 
@@ -427,13 +533,13 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
       console.warn("[TRUNK] not found");
     }
 
-    console.log("[LIGHTS]", {
+    console.table({
       ambient: amb.intensity,
       key: key.intensity,
       fill: fill.intensity,
       rim: rimLight.intensity,
-      spot: spot.intensity,
-      trunkWarm: trunkWarm.intensity,
+      candleLight: candleLight?.intensity ?? 0,
+      bloom: bloomPass.strength,
     });
 
     model.traverse((o) => {
@@ -468,6 +574,7 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
       console.log("[TRUNK visible test]", trunkMesh.visible, (trunkMesh.material as any).transparent);
       trunkMesh.renderOrder = 30;
       trunkMesh.frustumCulled = false;
+      applyTrunkDebug();
       trunkHelper = new THREE.BoxHelper(trunkMesh, 0xff00ff);
       (trunkHelper.material as THREE.Material).depthTest = false;
       trunkHelper.renderOrder = 31;
@@ -496,9 +603,10 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
       }
       const sm = star.material as THREE.MeshStandardMaterial;
       sm.color.set("#f5d36a");
-      sm.emissive.set("#ffd36a");
-      sm.emissiveIntensity = 1.1;
+      sm.emissive.set("#fff2b0");
+      sm.emissiveIntensity = 2.0;
       starMesh = star;
+      star.layers.enable(BLOOM_LAYER);
 
       const haloTex = new THREE.CanvasTexture(createHaloTexture());
       haloTex.colorSpace = THREE.SRGBColorSpace;
@@ -513,10 +621,26 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
       starHalo.scale.setScalar(0.35);
       starHalo.position.copy(haloOffset);
       star.add(starHalo);
+
+      if (!starLight) {
+        starLight = new THREE.PointLight(0xfff2b0, basePointLights.star, 3);
+        scene.add(starLight);
+      }
     }
 
     const crown = findByName(model, "mesh1356770401_2") as THREE.Mesh | null;
     const wick = findByName(model, "mesh1356770401_17") as THREE.Mesh | null;
+    if (wick && wick.material) {
+      const mats = Array.isArray(wick.material) ? wick.material : [wick.material];
+      for (const m of mats) {
+        const mat = m as THREE.MeshStandardMaterial;
+        if (!("emissive" in mat)) continue;
+        mat.color.setHex(0xffffff);
+        mat.emissive.setHex(0xffc36a);
+        mat.emissiveIntensity = 1.6;
+        candleEmissiveMats.push(mat);
+      }
+    }
 
     rig.updateMatrixWorld(true);
     model.updateMatrixWorld(true);
@@ -551,7 +675,7 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
 
   const giftGroup = new THREE.Group();
   giftGroup.position.set(stage.treeX, stage.groundY + 0.18, stage.treeZ);
-  giftGroup.scale.setScalar(0);
+  giftGroup.visible = false;
   scene.add(giftGroup);
 
   const giftLight = new THREE.PointLight(0xfff2cc, 0, 5);
@@ -586,6 +710,7 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
     });
     snowLayers.push(layer);
     scene.add(layer.points);
+    envObjects.push(layer.points);
   }
 
   // Load gift model
@@ -635,11 +760,13 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
     renderer.setSize(w, h, false);
+    bloomComposer.setSize(w, h);
+    finalComposer.setSize(w, h);
     mode = getLayoutMode();
     stage.treeX = isPortrait() ? STAGE.mobile.treeX : STAGE.desktop.treeX;
     stage.treeZ = isPortrait() ? STAGE.mobile.treeZ : STAGE.desktop.treeZ;
     treeGroup.position.set(stage.treeX, stage.groundY, stage.treeZ);
-    ground.position.set(stage.treeX, stage.groundY - 0.06, stage.treeZ - 0.6);
+    ground.position.set(stage.treeX, stage.groundY - 0.36, stage.treeZ - 0.6);
     shadow.position.set(stage.treeX, stage.groundY + 0.002, stage.treeZ);
     contactShadow.position.set(stage.treeX, stage.groundY + 0.003, stage.treeZ);
     trunkWarm.position.set(stage.treeX, stage.groundY + 0.6, stage.treeZ + 0.3);
@@ -650,25 +777,19 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
   };
 
   let giftVisible = false;
-  let giftT = 0;
-  let camLerp = 0;
   const setSpinVelocity = (v: number) => {
     yawVel = v;
   };
 
   const showGift = () => {
     giftVisible = true;
-    giftT = 0;
-    camLerp = 0;
-    treeGroup.visible = false;
-    updateGiftAnchor();
+    giftGroup.visible = true;
     starPulse = 0.3;
   };
 
   const hideGift = () => {
     giftVisible = false;
-    giftGroup.scale.setScalar(0);
-    treeGroup.visible = true;
+    giftGroup.visible = false;
   };
 
   // Debug overlay: toggled with "d"
@@ -811,6 +932,15 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
     // dt is seconds
     yaw += yawVel * dt;
     const speed = Math.min(1, Math.abs(yawVel) / 2.5);
+    const glow = 0.35 + speed * 0.9;
+    amb.intensity = baseLightLevels.amb * glow;
+    key.intensity = baseLightLevels.key * glow;
+    fill.intensity = baseLightLevels.fill * glow;
+    rimLight.intensity = baseLightLevels.rim * glow;
+    trunkWarm.intensity = baseLightLevels.trunkWarm * glow;
+    bloomPass.strength = baseBloomStrength * glow;
+    if (candleLight) candleLight.intensity = basePointLights.candle * glow;
+    if (starLight) starLight.intensity = basePointLights.star * glow;
     const targetLeanX = 0.03 * speed;
     const targetLeanZ = 0.05 * speed * Math.sign(yawVel || 1);
     [swayX, swayVelX] = spring(swayX, swayVelX, targetLeanX, 26, 7, dt);
@@ -829,20 +959,10 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
     decoGroup.rotation.x = swayX * 1.15;
     decoGroup.rotation.z = swayZ * 1.15;
 
-    if (giftVisible && giftT < 1) {
-      giftT = Math.min(1, giftT + dt * 2.2);
-      const eased = 1 - Math.pow(1 - giftT, 3); // easeOutCubic
-      giftGroup.scale.setScalar(eased);
-    }
-
     if (giftVisible) {
-      camLerp = Math.min(1, camLerp + dt * 1.1);
-      camera.position.lerpVectors(baseCamPos, revealCamPos, camLerp);
-      const t = performance.now() * 0.001;
-      giftGroup.position.y = 0.5 + Math.sin(t * 2.0) * 0.04;
-      giftGroup.rotation.y += dt * 1.6;
-      giftLight.intensity = THREE.MathUtils.lerp(giftLight.intensity, 3.5, dt * 3.5);
+      giftLight.intensity = THREE.MathUtils.lerp(giftLight.intensity, 3.0, dt * 3.5);
     } else {
+      camera.position.lerpVectors(baseCamPos, revealZoomPos, revealFactor);
       giftLight.intensity = THREE.MathUtils.lerp(giftLight.intensity, 0, dt * 3);
     }
 
@@ -853,7 +973,7 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
       starPulse = Math.max(0, starPulse - dt);
       const pulse = 1.0 + Math.sin(t * 1.6) * 0.25;
       const spark = starPulse > 0 ? 0.6 : 0;
-      (starMesh.material as THREE.MeshStandardMaterial).emissiveIntensity = 1.05 * pulse + spark;
+      (starMesh.material as THREE.MeshStandardMaterial).emissiveIntensity = baseEmissive.star * glow * pulse + spark;
     }
     if (starMesh && starHalo) {
       const pulse = 0.8 + Math.sin(performance.now() * 0.0016) * 0.2;
@@ -862,6 +982,19 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
       const scale = THREE.MathUtils.clamp(dist * 0.08, 0.22, 0.55);
       starHalo.scale.setScalar(scale);
       (starHalo.material as THREE.SpriteMaterial).opacity = 0.45 + pulse * 0.25;
+    }
+    if (starLight && starMesh) {
+      starMesh.getWorldPosition(starWorldPos);
+      starLight.position.copy(starWorldPos);
+    }
+    if (candleLight) {
+      candleLight.position.set(stage.treeX, stage.groundY + 1.0, stage.treeZ);
+    }
+    if (candleEmissiveMats.length > 0) {
+      const t = performance.now() * 0.001;
+      for (let i = 0; i < candleEmissiveMats.length; i++) {
+        candleEmissiveMats[i].emissiveIntensity = baseEmissive.candle * glow + Math.sin(t * 8 + i) * 0.2;
+      }
     }
     if (flameSprites.length > 0) {
       const t = performance.now() * 0.001;
@@ -887,6 +1020,10 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
       trunkMesh.getWorldPosition(trunkWorldPos);
       trunkMarker.position.copy(trunkWorldPos);
     }
+    if (!treeGroup.visible) {
+      console.warn("[BUG] treeGroup not visible");
+      treeGroup.visible = true;
+    }
   };
 
   return {
@@ -895,11 +1032,32 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
     camera,
     treeGroup,
     giftGroup,
+    render: () => {
+      const prevLayer = camera.layers.mask;
+      camera.layers.set(BLOOM_LAYER);
+      bloomComposer.render();
+      camera.layers.mask = prevLayer;
+      finalComposer.render();
+    },
     setSpinVelocity,
     showGift,
     hideGift,
     setSize,
     toggleDebug: setDebug,
+    toggleTrunkDoubleSide: () => {
+      trunkDoubleSide = !trunkDoubleSide;
+      applyTrunkDebug();
+      console.log("[TRUNK debug] doubleSide", trunkDoubleSide);
+    },
+    toggleTrunkDepthTest: () => {
+      trunkNoDepthTest = !trunkNoDepthTest;
+      applyTrunkDebug();
+      console.log("[TRUNK debug] depthTest", !trunkNoDepthTest);
+    },
+    toggleEnv,
+    setRevealFactor: (t: number) => {
+      revealFactor = THREE.MathUtils.clamp(t, 0, 1);
+    },
     getDebugState: () => {
       updateTreeBounds();
       return {

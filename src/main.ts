@@ -5,6 +5,11 @@ import { VOUCHERS, type Voucher } from "./config/vouchers";
 import { voucherToSVG, svgToPngBlob } from "./lib/voucherRender";
 import { downloadBlob } from "./lib/download";
 import { MUSIC_URL, SFX_GIFT_URL, SFX_SHAKE_URL } from "./config/audio";
+import { initBackground } from "./ui/background";
+import { createRevealController } from "./state/reveal";
+import { createDropController } from "./state/presentDrop";
+import { createSpinState, applySpinImpulse, resetCooldown, shouldTriggerReveal, updateSpin } from "./state/spin";
+import { SPIN } from "./config/tuning";
 
 const canvas = document.getElementById("scene") as HTMLCanvasElement;
 const bg = document.getElementById("bg") as HTMLDivElement | null;
@@ -15,8 +20,6 @@ const revealOverlay = document.getElementById("revealOverlay") as HTMLDivElement
 const hint = document.getElementById("hint") as HTMLDivElement;
 
 let currentVoucher: Voucher | null = null;
-let spinVelocity = 0;
-let spinCharge = 0;
 let musicStarted = false;
 let lastSpinSfx = 0;
 const raycaster = new THREE.Raycaster();
@@ -67,9 +70,6 @@ function playSfx(audio: HTMLAudioElement | null) {
   audio.play().catch(() => {});
 }
 
-function addSpinImpulse(dx: number) {
-  spinVelocity += dx * 0.08;
-}
 
 function showModal(v: Voucher) {
   const svg = voucherToSVG(v, { width: 1200, height: 675 });
@@ -97,64 +97,24 @@ modal.addEventListener("click", (e) => {
 (async () => {
   const handles = await createScene(canvas);
   let phase: Phase = "IDLE";
-  let revealStart = 0;
-  let revealT = 0;
-  const REVEAL_DUR = 900;
-  const BG_Y_OFFSET_END = -8;
-  const BG_SCALE_OFFSET_END = 0.04;
-
-  const easeInOutCubic = (x: number) => (x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2);
-  const applyReveal = (e: number) => {
-    document.documentElement.style.setProperty("--bg-y-offset", `${BG_Y_OFFSET_END * e}%`);
-    document.documentElement.style.setProperty("--bg-scale-offset", `${BG_SCALE_OFFSET_END * e}`);
+  const background = initBackground(bg, import.meta.env.BASE_URL);
+  const revealController = createRevealController((e) => {
+    background.applyReveal(e);
     if (handles.setRevealFactor) handles.setRevealFactor(e);
-  };
+  });
   const setPhase = (next: Phase) => {
     if (phase === next) return;
     phase = next;
   };
-
-  let present: THREE.Object3D | null = null;
-  const landing = new THREE.Vector3();
-  let vY = 0;
-  const startDrop = () => {
-    const s = handles.getTreeMetrics?.();
-    if (!s) return;
-    const center = new THREE.Vector3(s.treeBounds.center.x, s.treeBounds.center.y, s.treeBounds.center.z);
-    const size = new THREE.Vector3(s.treeBounds.size.x, s.treeBounds.size.y, s.treeBounds.size.z);
-    landing.copy(center).add(new THREE.Vector3(-size.x * 0.6, -size.y * 0.45, size.z * 0.1));
-    landing.y = s.stage.groundY + 0.12;
-
-    present = handles.giftGroup;
-    handles.showGift();
-    present.visible = true;
-    present.position.copy(landing).add(new THREE.Vector3(0, 1.8, 0));
-    present.rotation.set(0, Math.random() * Math.PI * 2, 0);
-    present.scale.setScalar(0.9);
-    vY = 0;
-    present.position.clone().project(handles.camera);
-  };
-
-  const updateDrop = (dt: number) => {
-    if (!present) return;
-    const g = 6.5;
-    vY += g * dt;
-    present.position.y -= vY * dt;
-    present.rotation.y += dt * 1.2;
-    if (present.position.y <= landing.y) {
-      present.position.y = landing.y;
-      present.position.y += 0.03;
-      setPhase("PRESENT_READY");
-    }
-  };
+  const dropController = createDropController({
+    giftGroup: handles.giftGroup,
+    showGift: handles.showGift,
+    camera: handles.camera,
+  });
+  const spinState = createSpinState();
 
   startMusic();
-  applyReveal(0);
-  if (bg) {
-    const base = import.meta.env.BASE_URL;
-    bg.style.setProperty("--bgImage", `url("${base}assets/bg.jpg")`);
-    bg.style.setProperty("--bgImagePortrait", `url("${base}assets/bg-portrait.jpg")`);
-  }
+  background.applyReveal(0);
 
   // Resize
   const resize = () => {
@@ -171,7 +131,6 @@ modal.addEventListener("click", (e) => {
   let lastX = 0;
   let lastY = 0;
 
-  let cooldown = 0;
   let hintTimer: number | null = null;
 
   const setHint = (msg: string | null) => {
@@ -219,17 +178,16 @@ modal.addEventListener("click", (e) => {
       lastY = e.clientY;
 
       const now = performance.now();
-      if (Math.abs(dx) + Math.abs(dy) > 12 && now - lastSpinSfx > 260) {
+      if (Math.abs(dx) + Math.abs(dy) > SPIN.sfxMinDelta && now - lastSpinSfx > SPIN.sfxCooldownMs) {
         playSfx(shakeSfx);
         lastSpinSfx = now;
       }
 
       // Apply guided spin
-      addSpinImpulse(dx);
-      spinCharge += Math.abs(dx) * 0.002;
+      applySpinImpulse(spinState, dx);
     } else if (isHovering) {
       // gentle hover auto-rotation
-      spinVelocity += 0.08;
+      spinState.velocity += SPIN.hoverSpin;
     }
   });
 
@@ -261,44 +219,33 @@ modal.addEventListener("click", (e) => {
     const dt = Math.min((now - last) / 1000, 0.05);
     last = now;
 
-    // decay spin charge & cooldown
-    spinCharge = Math.max(0, spinCharge * 0.96 - dt * 0.15) + Math.abs(spinVelocity) * dt * 0.8;
-    cooldown = Math.max(0, cooldown - dt);
-
-    // integrate spin (inertial yaw velocity)
-    spinVelocity *= Math.exp(-dt * 1.8);
-    if (Math.abs(spinVelocity) < 0.02) spinVelocity = 0;
+    updateSpin(spinState, dt);
     if (handles.setSpinVelocity) {
-      handles.setSpinVelocity(spinVelocity);
+      handles.setSpinVelocity(spinState.velocity);
     }
 
     if (phase === "REVEAL") {
-      const t = (performance.now() - revealStart) / REVEAL_DUR;
-      revealT = Math.max(0, Math.min(1, t));
-      const e = easeInOutCubic(revealT);
-      applyReveal(e);
-      if (revealT >= 1) {
+      if (revealController.update(performance.now())) {
         setPhase("DROP");
         startMusic();
         playSfx(giftSfx);
-        startDrop();
+        dropController.start(handles.getTreeMetrics?.());
         revealOverlay.classList.remove("hidden");
-        cooldown = 1.2;
+        resetCooldown(spinState);
       }
     }
 
     if (phase === "DROP") {
-      updateDrop(dt);
-      if (phase === "PRESENT_READY") {
+      if (dropController.update(dt)) {
+        setPhase("PRESENT_READY");
         setHint("Tap the present");
       }
     }
 
     // threshold -> start reveal
-    if (phase === "IDLE" && cooldown <= 0 && spinCharge > 1.25) {
+    if (phase === "IDLE" && shouldTriggerReveal(spinState)) {
       setPhase("REVEAL");
-      revealStart = performance.now();
-      revealT = 0;
+      revealController.start(performance.now());
       setHint(null);
     }
 

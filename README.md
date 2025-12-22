@@ -40,6 +40,16 @@ Main assets live in `public/assets`:
 
 Unused/legacy assets are moved to `public/assets/_unused` to keep the active set lean.
 
+## Project structure
+- `src/main.ts` — app orchestration, input, and UI
+- `src/three/scene.ts` — scene assembly
+- `src/three/lights.ts` — lighting setup
+- `src/three/postprocess.ts` — bloom pipeline
+- `src/three/tree.ts` — tree load + effects (star, candles, flames)
+- `src/three/gift.ts` — gift model loading
+- `src/state/` — reveal/drop/spin state logic
+- `src/config/tuning.ts` — tweakable constants
+
 ## Add your 3D tree model
 Put a GLB/GLTF model here:
 ```

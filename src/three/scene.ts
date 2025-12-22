@@ -1,13 +1,13 @@
 import * as THREE from "three";
-import { TREE_MODEL_URL, GIFT_MODEL_URL } from "../config/assets";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
-import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
-import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
-import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
-import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
 import { createSnowLayer, type SnowLayer } from "./snow";
 import { STAGE, getLayoutMode } from "../config/layout";
 import { frameObjectToCamera } from "./frame";
+import { CAMERA, GLOW } from "../config/tuning";
+import { createSceneLights } from "./lights";
+import { createBloomPipeline } from "./postprocess";
+import { loadTreeModel, updateTreeEffects, type TreeEffects } from "./tree";
+import { loadGiftModel } from "./gift";
 
 export type SceneHandles = {
   renderer: THREE.WebGLRenderer;
@@ -27,14 +27,6 @@ export type SceneHandles = {
   };
   update: (dt: number) => void;
 };
-
-export function findMeshByName(root: THREE.Object3D, name: string): THREE.Mesh | null {
-  let hit: THREE.Mesh | null = null;
-  root.traverse((o: any) => {
-    if (o?.isMesh && o.name === name) hit = o as THREE.Mesh;
-  });
-  return hit;
-}
 
 export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandles> {
   const BLOOM_LAYER = 1;
@@ -63,39 +55,10 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
     treeZ: isPortrait() ? STAGE.mobile.treeZ : STAGE.desktop.treeZ,
   };
 
-  const camera = new THREE.PerspectiveCamera(isPortrait() ? 36 : 32, 1, 0.1, 100);
+  const camera = new THREE.PerspectiveCamera(isPortrait() ? CAMERA.fovPortrait : CAMERA.fovLandscape, 1, 0.1, 100);
   camera.position.set(0, 1.2, 4.2);
   camera.layers.enable(BLOOM_LAYER);
-
-  const key = new THREE.DirectionalLight(0xffffff, 1.05);
-  key.position.set(3.5, 5.5, 2.5);
-  scene.add(key);
-
-  const fill = new THREE.DirectionalLight(0x9db7ff, 0.25);
-  fill.position.set(-3, 2.5, 2);
-  scene.add(fill);
-
-  const amb = new THREE.AmbientLight(0xffffff, 0.22);
-  scene.add(amb);
-
-  const spot = new THREE.PointLight(0xffe7d6, 0.25, 18);
-  spot.position.set(0, 2.2, -3.5);
-  scene.add(spot);
-
-  const rimLight = new THREE.DirectionalLight(0xffe2a8, 0.95);
-  rimLight.position.set(-3.5, 2.2, -3.0);
-  scene.add(rimLight);
-
-  const trunkWarm = new THREE.PointLight(0xffc28a, 0.25, 2.5);
-  trunkWarm.position.set(stage.treeX, stage.groundY + 0.6, stage.treeZ + 0.3);
-  scene.add(trunkWarm);
-  const baseLightLevels = {
-    key: key.intensity,
-    fill: fill.intensity,
-    amb: amb.intensity,
-    rim: rimLight.intensity,
-    trunkWarm: trunkWarm.intensity,
-  };
+  const lights = createSceneLights(scene, stage);
 
   // Snow ground
   const groundGeo = new THREE.PlaneGeometry(20, 20, 128, 128);
@@ -230,73 +193,19 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
   scene.add(contactShadow);
 
   const loader = new GLTFLoader();
-  const bloomLayer = new THREE.Layers();
-  bloomLayer.set(BLOOM_LAYER);
-  const bloomComposer = new EffectComposer(renderer);
-  const bloomRenderPass = new RenderPass(scene, camera);
-  bloomRenderPass.clearColor = new THREE.Color(0x000000);
-  bloomRenderPass.clearAlpha = 0;
-  bloomComposer.renderToScreen = false;
-  bloomComposer.addPass(bloomRenderPass);
-  const bloomPass = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.4, 0.4, 0.85);
-  const baseBloomStrength = bloomPass.strength;
-  bloomComposer.addPass(bloomPass);
-
-  const finalComposer = new EffectComposer(renderer);
-  const finalRenderPass = new RenderPass(scene, camera);
-  finalRenderPass.clearColor = new THREE.Color(0x000000);
-  finalRenderPass.clearAlpha = 0;
-  finalComposer.addPass(finalRenderPass);
-  const finalPass = new ShaderPass(
-    new THREE.ShaderMaterial({
-      uniforms: {
-        baseTexture: { value: null },
-        bloomTexture: { value: bloomComposer.renderTarget2.texture },
-      },
-      vertexShader: `
-        varying vec2 vUv;
-        void main() {
-          vUv = uv;
-          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-        }
-      `,
-      fragmentShader: `
-        uniform sampler2D baseTexture;
-        uniform sampler2D bloomTexture;
-        varying vec2 vUv;
-        void main() {
-          vec4 base = texture2D(baseTexture, vUv);
-          vec4 bloom = texture2D(bloomTexture, vUv);
-          gl_FragColor = vec4(base.rgb + bloom.rgb, base.a);
-        }
-      `,
-      transparent: true,
-    }),
-    "baseTexture"
-  );
-  finalComposer.addPass(finalPass);
+  const bloomPipeline = createBloomPipeline(renderer, scene, camera, BLOOM_LAYER);
+  const baseBloomStrength = bloomPipeline.bloomPass.strength;
   const baseCamPos = camera.position.clone();
-  const revealZoomPos = baseCamPos.clone().add(new THREE.Vector3(0.1, 0.2, 0.7));
-  const LOOK_TARGET_Y_OFFSET = 0.32;
-  const lookTarget = new THREE.Vector3(stage.treeX, STAGE.targetY + LOOK_TARGET_Y_OFFSET, stage.treeZ);
-  let starMesh: THREE.Mesh | null = null;
-  let starHalo: THREE.Sprite | null = null;
-  let starPulse = 0;
-  const starWorldPos = new THREE.Vector3();
+  const revealZoomPos = baseCamPos.clone().add(new THREE.Vector3(
+    CAMERA.revealZoomOffset.x,
+    CAMERA.revealZoomOffset.y,
+    CAMERA.revealZoomOffset.z
+  ));
+  const lookTarget = new THREE.Vector3(stage.treeX, STAGE.targetY + CAMERA.lookTargetYOffset, stage.treeZ);
   const haloOffset = new THREE.Vector3(0, 0.05, 0.06);
-  const flameSprites: { sprite: THREE.Sprite; baseScale: THREE.Vector2; phase: number }[] = [];
-  const candleEmissiveMats: THREE.MeshStandardMaterial[] = [];
-  let flameLight: THREE.PointLight | null = null;
-  let candleLight: THREE.PointLight | null = null;
-  let starLight: THREE.PointLight | null = null;
-  const baseEmissive = {
-    candle: 1.6,
-    star: 1.8,
-  };
-  const basePointLights = {
-    candle: 0.8,
-    star: 0.6,
-  };
+  let treeEffects: TreeEffects | null = null;
+  const baseEmissive = { candle: GLOW.candleEmissive, star: GLOW.starEmissive };
+  const basePointLights = { candle: GLOW.candleLight, star: GLOW.starLight };
   let yaw = 0;
   let yawVel = 0;
   let swayX = 0;
@@ -306,7 +215,6 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
   let decoYaw = 0;
   let decoYawVel = 0;
   let revealFactor = 0;
-  let trunkMesh: THREE.Mesh | null = null;
 
   function createHaloTexture() {
     const c = document.createElement("canvas");
@@ -323,100 +231,11 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
     return c;
   }
 
-  function createFlameTexture() {
-    const c = document.createElement("canvas");
-    c.width = 64;
-    c.height = 64;
-    const ctx = c.getContext("2d");
-    if (!ctx) return c;
-    const g = ctx.createRadialGradient(32, 40, 2, 32, 40, 28);
-    g.addColorStop(0, "rgba(255, 213, 138, 0.95)");
-    g.addColorStop(0.45, "rgba(255, 159, 58, 0.55)");
-    g.addColorStop(1, "rgba(255, 159, 58, 0)");
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, 64, 64);
-    return c;
-  }
-
-  function findByName(root: THREE.Object3D, name: string): THREE.Object3D | null {
-    let hit: THREE.Object3D | null = null;
-    root.traverse((o) => {
-      if (o.name === name) hit = o;
-    });
-    return hit;
-  }
-
   function spring(current: number, velocity: number, target: number, k: number, c: number, dt: number) {
     const accel = -k * (current - target) - c * velocity;
     const nextVel = velocity + accel * dt;
     const next = current + nextVel * dt;
     return [next, nextVel] as const;
-  }
-
-  function addCandleFlames(wick: THREE.Mesh, target: THREE.Object3D) {
-    const geom = wick.geometry as THREE.BufferGeometry;
-    const posAttr = geom.getAttribute("position") as THREE.BufferAttribute | null;
-    if (!posAttr) return;
-
-    const worldBox = new THREE.Box3().setFromObject(wick);
-    const yMin = worldBox.min.y;
-    const yMax = worldBox.max.y;
-    const yCut = yMin + (yMax - yMin) * 0.7;
-    const point = new THREE.Vector3();
-    const buckets = new Map<string, { sum: THREE.Vector3; count: number }>();
-    const cell = 0.22;
-
-    for (let i = 0; i < posAttr.count; i++) {
-      point.fromBufferAttribute(posAttr, i);
-      wick.localToWorld(point);
-      if (point.y < yCut) continue;
-      const key = `${Math.floor(point.x / cell)}:${Math.floor(point.z / cell)}`;
-      const bucket = buckets.get(key);
-      if (bucket) {
-        bucket.sum.add(point);
-        bucket.count += 1;
-      } else {
-        buckets.set(key, { sum: point.clone(), count: 1 });
-      }
-    }
-
-    if (buckets.size === 0) return;
-    const flameTex = new THREE.CanvasTexture(createFlameTexture());
-    flameTex.colorSpace = THREE.SRGBColorSpace;
-    const flameMat = new THREE.SpriteMaterial({
-      map: flameTex,
-      transparent: true,
-      opacity: 0.8,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-    });
-
-    for (const bucket of buckets.values()) {
-      const center = bucket.sum.multiplyScalar(1 / bucket.count);
-      const local = target.worldToLocal(center.clone());
-      const sprite = new THREE.Sprite(flameMat.clone());
-      sprite.position.copy(local).add(new THREE.Vector3(0, 0.06, 0));
-      sprite.scale.set(0.1, 0.16, 1);
-      sprite.layers.enable(BLOOM_LAYER);
-      target.add(sprite);
-      flameSprites.push({
-        sprite,
-        baseScale: new THREE.Vector2(0.1, 0.16),
-        phase: Math.random() * Math.PI * 2,
-      });
-    }
-
-    if (!flameLight) {
-      flameLight = new THREE.PointLight(0xffb24a, 0.45, 5);
-      flameLight.position.set(stage.treeX, stage.groundY + 1.4, stage.treeZ);
-      scene.add(flameLight);
-    }
-
-    if (!candleLight) {
-      candleLight = new THREE.PointLight(0xffc36a, basePointLights.candle, 2.5);
-      candleLight.position.set(stage.treeX, stage.groundY + 1.0, stage.treeZ);
-      scene.add(candleLight);
-    }
   }
 
   function updateTreeBounds() {
@@ -428,152 +247,34 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
   function frameObject() {
     updateTreeBounds();
     lookTarget.copy(treeBounds.center);
-    lookTarget.y += LOOK_TARGET_Y_OFFSET;
+    lookTarget.y += CAMERA.lookTargetYOffset;
     frameObjectToCamera({
       camera,
       object: treeGroup,
       target: lookTarget,
-      fov: isPortrait() ? 36 : 32,
-      padding: isPortrait() ? 1.35 : 1.2,
-      minDist: isPortrait() ? 4.2 : 4.0,
-      maxDist: 6.2,
+      fov: isPortrait() ? CAMERA.fovPortrait : CAMERA.fovLandscape,
+      padding: isPortrait() ? CAMERA.paddingPortrait : CAMERA.paddingLandscape,
+      minDist: isPortrait() ? CAMERA.minDistPortrait : CAMERA.minDistLandscape,
+      maxDist: CAMERA.maxDist,
     });
   }
 
-  // Load tree model
-  let model: THREE.Object3D | null = null;
-  try {
-    const gltf = await loader.loadAsync(TREE_MODEL_URL);
-    model = gltf.scene;
-  } catch (e) {
-    model = null;
-  }
+  const treeLoad = await loadTreeModel({
+    loader,
+    rig,
+    trunkGroup,
+    crownGroup,
+    decoGroup,
+    stage,
+    scene,
+    bloomLayer: BLOOM_LAYER,
+    haloOffset,
+  });
+  treeEffects = treeLoad.effects;
 
-  if (model) {
-    // Center & scale roughly
-    const box = new THREE.Box3().setFromObject(model);
-    const size = new THREE.Vector3();
-    box.getSize(size);
-    const center = new THREE.Vector3();
-    box.getCenter(center);
-
-    model.position.sub(center);
-    const targetHeight = 1.65;
-    const scale = targetHeight / Math.max(size.y, 0.001);
-    model.scale.setScalar(scale);
-
-    model.position.y = 0;
-    model.updateMatrixWorld(true);
-    const scaledBox = new THREE.Box3().setFromObject(model);
-    model.position.y += -scaledBox.min.y;
-    rig.add(model);
-
-    trunkMesh = findMeshByName(model, "mesh1356770401_1");
-
-    model.traverse((o) => {
-      if (!o?.isMesh) return;
-      if (o.name === "mesh1356770401_1") return;
-      const mesh = o as THREE.Mesh;
-      if (!mesh.material) return;
-      const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-      for (const m of mats) {
-        const mat = m as THREE.MeshStandardMaterial;
-        if ("roughness" in mat) mat.roughness = Math.min(mat.roughness ?? 1, 0.85);
-        if ("metalness" in mat) mat.metalness = Math.max(mat.metalness ?? 0, 0.05);
-        (mat as any).fog = true;
-      }
-    });
-
-    if (trunkMesh) {
-      const trunkMat = new THREE.MeshStandardMaterial({
-        color: "#5b3b2f",
-        roughness: 0.9,
-        metalness: 0.0,
-      });
-      trunkMat.fog = false;
-      trunkMesh.material = trunkMat;
-      trunkMesh.visible = true;
-      const mats = Array.isArray(trunkMesh.material) ? trunkMesh.material : [trunkMesh.material];
-      for (const mat of mats) {
-        (mat as THREE.Material).transparent = false;
-        (mat as THREE.Material).opacity = 1;
-      }
-      trunkMesh.renderOrder = 30;
-      trunkMesh.frustumCulled = false;
-      const trunkBox = new THREE.Box3().setFromObject(trunkMesh);
-      const trunkSize = new THREE.Vector3();
-      trunkBox.getSize(trunkSize);
-    }
-
-    const star = findByName(model, "group1533398606") as THREE.Mesh | null;
-    if (star && (star as any).isMesh) {
-      const mat = star.material as THREE.MeshStandardMaterial;
-      if (!("emissive" in mat)) {
-        star.material = new THREE.MeshStandardMaterial({ color: 0xffd36a });
-      }
-      const sm = star.material as THREE.MeshStandardMaterial;
-      sm.color.set("#f5d36a");
-      sm.emissive.set("#fff2b0");
-      sm.emissiveIntensity = 2.0;
-      starMesh = star;
-      star.layers.enable(BLOOM_LAYER);
-
-      const haloTex = new THREE.CanvasTexture(createHaloTexture());
-      haloTex.colorSpace = THREE.SRGBColorSpace;
-      const haloMat = new THREE.SpriteMaterial({
-        map: haloTex,
-        transparent: true,
-        opacity: 0.55,
-        blending: THREE.AdditiveBlending,
-        depthWrite: false,
-      });
-      starHalo = new THREE.Sprite(haloMat);
-      starHalo.scale.setScalar(0.35);
-      starHalo.position.copy(haloOffset);
-      star.add(starHalo);
-
-      if (!starLight) {
-        starLight = new THREE.PointLight(0xfff2b0, basePointLights.star, 3);
-        scene.add(starLight);
-      }
-    }
-
-    const crown = findByName(model, "mesh1356770401_2") as THREE.Mesh | null;
-    const wick = findByName(model, "mesh1356770401_17") as THREE.Mesh | null;
-    if (wick && wick.material) {
-      const mats = Array.isArray(wick.material) ? wick.material : [wick.material];
-      for (const m of mats) {
-        const mat = m as THREE.MeshStandardMaterial;
-        if (!("emissive" in mat)) continue;
-        mat.color.setHex(0xffffff);
-        mat.emissive.setHex(0xffc36a);
-        mat.emissiveIntensity = 1.6;
-        candleEmissiveMats.push(mat);
-      }
-    }
-
-    rig.updateMatrixWorld(true);
-    model.updateMatrixWorld(true);
-    const meshes: THREE.Mesh[] = [];
-    model.traverse((o) => {
-      if ((o as any).isMesh) meshes.push(o as THREE.Mesh);
-    });
-    for (const mesh of meshes) {
-      if (mesh === trunkMesh) {
-        trunkGroup.attach(mesh);
-      } else if (mesh === crown || mesh === star) {
-        crownGroup.attach(mesh);
-      } else {
-        decoGroup.attach(mesh);
-      }
-    }
-    rig.remove(model);
-
-    if (wick) addCandleFlames(wick, decoGroup);
-
+  if (treeLoad.model) {
     frameObject();
   } else {
-    // If no model is present yet, show a placeholder cone
     const placeholder = new THREE.Mesh(
       new THREE.ConeGeometry(1, 2.4, 10),
       new THREE.MeshStandardMaterial({ color: 0x2aa84a, roughness: 1 })
@@ -623,38 +324,7 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
   }
 
   // Load gift model
-  let giftHalfHeight = 0.35;
-
-  try {
-    const gltfGift = await loader.loadAsync(GIFT_MODEL_URL);
-    const gift = gltfGift.scene;
-
-    // Center & scale
-    const box = new THREE.Box3().setFromObject(gift);
-    const size = new THREE.Vector3();
-    box.getSize(size);
-    const center = new THREE.Vector3();
-    box.getCenter(center);
-    gift.position.sub(center);
-
-    const targetHeight = 0.7;
-    const s = targetHeight / Math.max(size.y, 0.001);
-    gift.scale.setScalar(s);
-
-    giftGroup.add(gift);
-
-    const gBox = new THREE.Box3().setFromObject(gift);
-    const gSize = new THREE.Vector3();
-    gBox.getSize(gSize);
-    giftHalfHeight = gSize.y / 2;
-  } catch (e) {
-    // Fallback placeholder if the gift model is missing
-    const ph = new THREE.Mesh(
-      new THREE.BoxGeometry(0.6, 0.6, 0.6),
-      new THREE.MeshStandardMaterial({ color: 0x44aa55, roughness: 0.9 })
-    );
-    giftGroup.add(ph);
-  }
+  let giftHalfHeight = await loadGiftModel(loader, giftGroup);
 
   // gift placement synced to tree position
   function updateGiftAnchor() {
@@ -669,8 +339,7 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
     renderer.setSize(w, h, false);
-    bloomComposer.setSize(w, h);
-    finalComposer.setSize(w, h);
+    bloomPipeline.setSize(w, h);
     mode = getLayoutMode();
     stage.treeX = isPortrait() ? STAGE.mobile.treeX : STAGE.desktop.treeX;
     stage.treeZ = isPortrait() ? STAGE.mobile.treeZ : STAGE.desktop.treeZ;
@@ -678,10 +347,7 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
     ground.position.set(stage.treeX, stage.groundY - 0.36, stage.treeZ - 0.6);
     shadow.position.set(stage.treeX, stage.groundY + 0.002, stage.treeZ);
     contactShadow.position.set(stage.treeX, stage.groundY + 0.003, stage.treeZ);
-    trunkWarm.position.set(stage.treeX, stage.groundY + 0.6, stage.treeZ + 0.3);
-    if (flameLight) {
-      flameLight.position.set(stage.treeX, stage.groundY + 1.4, stage.treeZ);
-    }
+    lights.updateStage(stage);
     if (treeGroup.children.length > 0) frameObject();
   };
 
@@ -693,7 +359,6 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
   const showGift = () => {
     giftVisible = true;
     giftGroup.visible = true;
-    starPulse = 0.3;
   };
 
   const hideGift = () => {
@@ -705,15 +370,9 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
     // dt is seconds
     yaw += yawVel * dt;
     const speed = Math.min(1, Math.abs(yawVel) / 2.5);
-    const glow = 0.35 + speed * 0.9;
-    amb.intensity = baseLightLevels.amb * glow;
-    key.intensity = baseLightLevels.key * glow;
-    fill.intensity = baseLightLevels.fill * glow;
-    rimLight.intensity = baseLightLevels.rim * glow;
-    trunkWarm.intensity = baseLightLevels.trunkWarm * glow;
-    bloomPass.strength = baseBloomStrength * glow;
-    if (candleLight) candleLight.intensity = basePointLights.candle * glow;
-    if (starLight) starLight.intensity = basePointLights.star * glow;
+    const glow = GLOW.base + speed * GLOW.scale;
+    lights.updateGlow(glow);
+    bloomPipeline.bloomPass.strength = baseBloomStrength * glow;
     const targetLeanX = 0.03 * speed;
     const targetLeanZ = 0.05 * speed * Math.sign(yawVel || 1);
     [swayX, swayVelX] = spring(swayX, swayVelX, targetLeanX, 26, 7, dt);
@@ -741,46 +400,16 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
 
     camera.lookAt(lookTarget);
 
-    if (starMesh && (starMesh.material as any)?.emissive) {
-      const t = performance.now() * 0.001;
-      starPulse = Math.max(0, starPulse - dt);
-      const pulse = 1.0 + Math.sin(t * 1.6) * 0.25;
-      const spark = starPulse > 0 ? 0.6 : 0;
-      (starMesh.material as THREE.MeshStandardMaterial).emissiveIntensity = baseEmissive.star * glow * pulse + spark;
-    }
-    if (starMesh && starHalo) {
-      const pulse = 0.8 + Math.sin(performance.now() * 0.0016) * 0.2;
-      starMesh.getWorldPosition(starWorldPos);
-      const dist = camera.position.distanceTo(starWorldPos);
-      const scale = THREE.MathUtils.clamp(dist * 0.08, 0.22, 0.55);
-      starHalo.scale.setScalar(scale);
-      (starHalo.material as THREE.SpriteMaterial).opacity = 0.45 + pulse * 0.25;
-    }
-    if (starLight && starMesh) {
-      starMesh.getWorldPosition(starWorldPos);
-      starLight.position.copy(starWorldPos);
-    }
-    if (candleLight) {
-      candleLight.position.set(stage.treeX, stage.groundY + 1.0, stage.treeZ);
-    }
-    if (candleEmissiveMats.length > 0) {
-      const t = performance.now() * 0.001;
-      for (let i = 0; i < candleEmissiveMats.length; i++) {
-        candleEmissiveMats[i].emissiveIntensity = baseEmissive.candle * glow + Math.sin(t * 8 + i) * 0.2;
-      }
-    }
-    if (flameSprites.length > 0) {
-      const t = performance.now() * 0.001;
-      for (const flame of flameSprites) {
-        const flicker = Math.sin(t * 7 + flame.phase) * 0.15 + Math.sin(t * 11 + flame.phase) * 0.07;
-        const mat = flame.sprite.material as THREE.SpriteMaterial;
-        mat.opacity = 0.75 + flicker;
-        flame.sprite.scale.set(
-          flame.baseScale.x,
-          flame.baseScale.y * (0.9 + Math.sin(t * 8 + flame.phase) * 0.12),
-          1
-        );
-      }
+    if (treeEffects) {
+      updateTreeEffects({
+        effects: treeEffects,
+        dt,
+        glow,
+        camera,
+        stage,
+        baseEmissive,
+        basePointLights,
+      });
     }
 
     for (const layer of snowLayers) {
@@ -795,13 +424,7 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
     camera,
     treeGroup,
     giftGroup,
-    render: () => {
-      const prevLayer = camera.layers.mask;
-      camera.layers.set(BLOOM_LAYER);
-      bloomComposer.render();
-      camera.layers.mask = prevLayer;
-      finalComposer.render();
-    },
+    render: bloomPipeline.render,
     setSpinVelocity,
     showGift,
     hideGift,

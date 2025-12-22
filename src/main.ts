@@ -28,10 +28,6 @@ let giftSfx: HTMLAudioElement | null = null;
 
 type Phase = "IDLE" | "REVEAL" | "DROP" | "PRESENT_READY";
 
-const debugParam = new URLSearchParams(window.location.search).has("debug");
-const debugStored = window.localStorage.getItem("treeDebug") === "1";
-const debugEnabled = debugParam || debugStored;
-if (debugParam) window.localStorage.setItem("treeDebug", "1");
 
 function pickVoucher(): Voucher {
   return VOUCHERS[Math.floor(Math.random() * VOUCHERS.length)];
@@ -100,27 +96,21 @@ modal.addEventListener("click", (e) => {
 
 (async () => {
   const handles = await createScene(canvas);
-  let debugVisible = false;
-  let infoVisible = debugEnabled;
-  let infoEl: HTMLDivElement | null = null;
   let phase: Phase = "IDLE";
   let revealStart = 0;
   let revealT = 0;
   const REVEAL_DUR = 900;
-  const BG_Y0 = 50;
-  const BG_Y1 = 42;
-  const BG_SCALE0 = 1.0;
-  const BG_SCALE1 = 1.04;
+  const BG_Y_OFFSET_END = -8;
+  const BG_SCALE_OFFSET_END = 0.04;
 
   const easeInOutCubic = (x: number) => (x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2);
   const applyReveal = (e: number) => {
-    document.documentElement.style.setProperty("--bgY", `${BG_Y0 + (BG_Y1 - BG_Y0) * e}%`);
-    document.documentElement.style.setProperty("--bgScale", `${BG_SCALE0 + (BG_SCALE1 - BG_SCALE0) * e}`);
+    document.documentElement.style.setProperty("--bg-y-offset", `${BG_Y_OFFSET_END * e}%`);
+    document.documentElement.style.setProperty("--bg-scale-offset", `${BG_SCALE_OFFSET_END * e}`);
     if (handles.setRevealFactor) handles.setRevealFactor(e);
   };
   const setPhase = (next: Phase) => {
     if (phase === next) return;
-    console.log("[PHASE]", phase, "->", next);
     phase = next;
   };
 
@@ -128,7 +118,7 @@ modal.addEventListener("click", (e) => {
   const landing = new THREE.Vector3();
   let vY = 0;
   const startDrop = () => {
-    const s = handles.getDebugState?.();
+    const s = handles.getTreeMetrics?.();
     if (!s) return;
     const center = new THREE.Vector3(s.treeBounds.center.x, s.treeBounds.center.y, s.treeBounds.center.z);
     const size = new THREE.Vector3(s.treeBounds.size.x, s.treeBounds.size.y, s.treeBounds.size.z);
@@ -142,9 +132,7 @@ modal.addEventListener("click", (e) => {
     present.rotation.set(0, Math.random() * Math.PI * 2, 0);
     present.scale.setScalar(0.9);
     vY = 0;
-    const ndc = present.position.clone().project(handles.camera);
-    console.log("[DROP start]", { landing: landing.toArray(), start: present.position.toArray() });
-    console.log("[DROP NDC]", ndc.x, ndc.y);
+    present.position.clone().project(handles.camera);
   };
 
   const updateDrop = (dt: number) => {
@@ -157,27 +145,16 @@ modal.addEventListener("click", (e) => {
       present.position.y = landing.y;
       present.position.y += 0.03;
       setPhase("PRESENT_READY");
-      console.log("[DROP landed]", present.position.toArray());
     }
   };
 
-  const ensureInfoOverlay = () => {
-    if (infoEl) return;
-    infoEl = document.createElement("div");
-    infoEl.className = "debug-panel";
-    document.body.appendChild(infoEl);
-  };
-
-  const setInfoVisible = (on: boolean) => {
-    infoVisible = on;
-    if (infoVisible) ensureInfoOverlay();
-    if (infoEl) infoEl.classList.toggle("hidden", !infoVisible);
-  };
-
-  if (debugEnabled) setInfoVisible(true);
   startMusic();
   applyReveal(0);
-  if (bg) bg.style.setProperty("--bgImage", 'url("/assets/bg-alt.png")');
+  if (bg) {
+    const base = import.meta.env.BASE_URL;
+    bg.style.setProperty("--bgImage", `url("${base}assets/bg.jpg")`);
+    bg.style.setProperty("--bgImagePortrait", `url("${base}assets/bg-portrait.jpg")`);
+  }
 
   // Resize
   const resize = () => {
@@ -277,49 +254,12 @@ modal.addEventListener("click", (e) => {
     downloadBlob(`voucher-${currentVoucher.id}.png`, png);
   });
 
-  window.addEventListener("keydown", (e) => {
-    if (e.key === "d" || e.key === "D") {
-      debugVisible = !debugVisible;
-      if ((handles as any).toggleDebug) {
-        (handles as any).toggleDebug(debugVisible);
-      }
-    }
-    if (e.key === "i" || e.key === "I") {
-      setInfoVisible(!infoVisible);
-    }
-    if (e.key === "f" || e.key === "F") {
-      const s = handles.scene;
-      if (s.fog) {
-        console.log("[FOG] disabling");
-        s.fog = null;
-      } else {
-        console.log("[FOG] enabling");
-        s.fog = new THREE.Fog(0xbcc9d9, 2.8, 10.0);
-      }
-    }
-    if (e.key === "b" || e.key === "B") {
-      if ((handles as any).toggleTrunkDoubleSide) {
-        (handles as any).toggleTrunkDoubleSide();
-      }
-    }
-    if (e.key === "z" || e.key === "Z") {
-      if ((handles as any).toggleTrunkDepthTest) {
-        (handles as any).toggleTrunkDepthTest();
-      }
-    }
-    if (e.key === "g" || e.key === "G") {
-      if ((handles as any).toggleEnv) {
-        (handles as any).toggleEnv();
-      }
-    }
-  });
 
   // Main loop
   let last = performance.now();
   const loop = (now: number) => {
     const dt = Math.min((now - last) / 1000, 0.05);
     last = now;
-    if (!handles.treeGroup?.visible) console.warn("[BUG] treeGroup not visible");
 
     // decay spin charge & cooldown
     spinCharge = Math.max(0, spinCharge * 0.96 - dt * 0.15) + Math.abs(spinVelocity) * dt * 0.8;
@@ -363,17 +303,6 @@ modal.addEventListener("click", (e) => {
     }
 
     handles.update(dt);
-    if (infoVisible && infoEl && handles.getDebugState) {
-      const s = handles.getDebugState();
-      infoEl.textContent =
-        `Debug info (i: toggle panel, d: helpers)\n` +
-        `cam: (${s.camera.x.toFixed(2)}, ${s.camera.y.toFixed(2)}, ${s.camera.z.toFixed(2)}) fov ${s.camera.fov.toFixed(1)} aspect ${s.camera.aspect.toFixed(2)}\n` +
-        `target: (${s.target.x.toFixed(2)}, ${s.target.y.toFixed(2)}, ${s.target.z.toFixed(2)})\n` +
-        `tree center: (${s.treeBounds.center.x.toFixed(2)}, ${s.treeBounds.center.y.toFixed(2)}, ${s.treeBounds.center.z.toFixed(2)})\n` +
-        `tree size: (${s.treeBounds.size.x.toFixed(2)}, ${s.treeBounds.size.y.toFixed(2)}, ${s.treeBounds.size.z.toFixed(2)})\n` +
-        `stage: groundY ${s.stage.groundY.toFixed(2)} treeX ${s.stage.treeX.toFixed(2)} treeZ ${s.stage.treeZ.toFixed(2)}\n` +
-        `dt: ${(dt * 1000).toFixed(1)}ms`;
-    }
     handles.render();
     requestAnimationFrame(loop);
   };

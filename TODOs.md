@@ -13,6 +13,7 @@
 - [x] Refine ground tint/texture to read as snow without beige cast
 - [x] Shrink podium radius slightly and add soft contact shadow under trunk
 - [x] Ensure hint placement is unobtrusive and aligned with festive UI styling
+- [x] Mobile portrait background framing (bg vars + safe-area sizing)
 
 ## Spin Rework (new)
 - [x] Replace shake mechanic with spin-up: drag/rotate accelerates the tree

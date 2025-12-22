@@ -20,14 +20,8 @@ export type SceneHandles = {
   showGift: () => void;
   hideGift: () => void;
   setSize: (w: number, h: number) => void;
-  toggleDebug?: (on: boolean) => void;
-  toggleTrunkDoubleSide?: () => void;
-  toggleTrunkDepthTest?: () => void;
-  toggleEnv?: () => void;
   setRevealFactor?: (t: number) => void;
-  getDebugState?: () => {
-    camera: { x: number; y: number; z: number; fov: number; aspect: number };
-    target: { x: number; y: number; z: number };
+  getTreeMetrics?: () => {
     treeBounds: { center: { x: number; y: number; z: number }; size: { x: number; y: number; z: number } };
     stage: { groundY: number; treeX: number; treeZ: number };
   };
@@ -54,28 +48,11 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
   const scene = new THREE.Scene();
   scene.fog = new THREE.Fog(0xbcc9d9, 2.8, 10.0);
   const snowLayers: SnowLayer[] = [];
-  const debugHelpers: THREE.Object3D[] = [];
-  let debugVisible = false;
   const treeBounds = {
     box: new THREE.Box3(),
     size: new THREE.Vector3(),
     center: new THREE.Vector3(),
   };
-  type LabelHandle = {
-    sprite: THREE.Sprite;
-    canvas: HTMLCanvasElement;
-    ctx: CanvasRenderingContext2D | null;
-    texture: THREE.CanvasTexture;
-  };
-  let debugHandles: {
-    cross: THREE.LineSegments;
-    crossLabel: LabelHandle;
-    groundLine: THREE.Line;
-    groundLabel: LabelHandle;
-    safeFrame: THREE.Line;
-    safeLabel: LabelHandle;
-    boxHelper: THREE.BoxHelper;
-  } | null = null;
 
   let mode = getLayoutMode();
   const isPortrait = () => mode === "portrait";
@@ -194,13 +171,6 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
   ground.position.set(stage.treeX, stage.groundY - 0.36, stage.treeZ - 0.6);
   ground.renderOrder = 10;
   scene.add(ground);
-  console.log("[GROUND]", {
-    hasUV: !!ground.geometry.attributes.uv,
-    transparent: (ground.material as any).transparent,
-    depthWrite: (ground.material as any).depthWrite,
-    hasAlphaMap: !!(ground.material as any).alphaMap,
-  });
-  console.log("[GROUND alphaMap test] expected: bottom white, top black");
 
   const treeGroup = new THREE.Group();
   treeGroup.position.set(stage.treeX, stage.groundY, stage.treeZ);
@@ -258,13 +228,6 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
   contactShadow.rotation.x = -Math.PI / 2;
   contactShadow.position.set(stage.treeX, stage.groundY + 0.003, stage.treeZ);
   scene.add(contactShadow);
-  const envObjects: THREE.Object3D[] = [ground, shadow, contactShadow];
-  let envVisible = true;
-  const toggleEnv = () => {
-    envVisible = !envVisible;
-    for (const obj of envObjects) obj.visible = envVisible;
-    console.log("[ENV] visible", envVisible);
-  };
 
   const loader = new GLTFLoader();
   const bloomLayer = new THREE.Layers();
@@ -314,7 +277,7 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
   finalComposer.addPass(finalPass);
   const baseCamPos = camera.position.clone();
   const revealZoomPos = baseCamPos.clone().add(new THREE.Vector3(0.1, 0.2, 0.7));
-  const LOOK_TARGET_Y_OFFSET = -0.08;
+  const LOOK_TARGET_Y_OFFSET = 0.32;
   const lookTarget = new THREE.Vector3(stage.treeX, STAGE.targetY + LOOK_TARGET_Y_OFFSET, stage.treeZ);
   let starMesh: THREE.Mesh | null = null;
   let starHalo: THREE.Sprite | null = null;
@@ -343,23 +306,7 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
   let decoYaw = 0;
   let decoYawVel = 0;
   let revealFactor = 0;
-  let trunkHelper: THREE.BoxHelper | null = null;
-  let trunkMarker: THREE.Mesh | null = null;
-  const trunkWorldPos = new THREE.Vector3();
   let trunkMesh: THREE.Mesh | null = null;
-  let trunkDoubleSide = false;
-  let trunkNoDepthTest = false;
-
-  const applyTrunkDebug = () => {
-    if (!trunkMesh) return;
-    const mats = Array.isArray(trunkMesh.material) ? trunkMesh.material : [trunkMesh.material];
-    for (const mat of mats) {
-      if (!mat) continue;
-      mat.side = trunkDoubleSide ? THREE.DoubleSide : THREE.FrontSide;
-      mat.depthTest = !trunkNoDepthTest;
-      mat.needsUpdate = true;
-    }
-  };
 
   function createHaloTexture() {
     const c = document.createElement("canvas");
@@ -491,14 +438,18 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
       minDist: isPortrait() ? 4.2 : 4.0,
       maxDist: 6.2,
     });
-    updateDebugHelpers();
   }
 
   // Load tree model
+  let model: THREE.Object3D | null = null;
   try {
     const gltf = await loader.loadAsync(TREE_MODEL_URL);
-    const model = gltf.scene;
+    model = gltf.scene;
+  } catch (e) {
+    model = null;
+  }
 
+  if (model) {
     // Center & scale roughly
     const box = new THREE.Box3().setFromObject(model);
     const size = new THREE.Vector3();
@@ -518,29 +469,6 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
     rig.add(model);
 
     trunkMesh = findMeshByName(model, "mesh1356770401_1");
-    if (trunkMesh) {
-      const m: any = trunkMesh.material;
-      console.log("[TRUNK]", {
-        name: trunkMesh.name,
-        matType: m?.type,
-        color: m?.color?.getHexString?.(),
-        roughness: m?.roughness,
-        metalness: m?.metalness,
-        emissive: m?.emissive?.getHexString?.(),
-      });
-      console.log("[TRUNK world]", trunkMesh.getWorldPosition(new THREE.Vector3()).toArray());
-    } else {
-      console.warn("[TRUNK] not found");
-    }
-
-    console.table({
-      ambient: amb.intensity,
-      key: key.intensity,
-      fill: fill.intensity,
-      rim: rimLight.intensity,
-      candleLight: candleLight?.intensity ?? 0,
-      bloom: bloomPass.strength,
-    });
 
     model.traverse((o) => {
       if (!o?.isMesh) return;
@@ -564,35 +492,17 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
       });
       trunkMat.fog = false;
       trunkMesh.material = trunkMat;
-      console.log("[TRUNK fog disabled]", { fog: (trunkMesh.material as any).fog });
       trunkMesh.visible = true;
       const mats = Array.isArray(trunkMesh.material) ? trunkMesh.material : [trunkMesh.material];
       for (const mat of mats) {
         (mat as THREE.Material).transparent = false;
         (mat as THREE.Material).opacity = 1;
       }
-      console.log("[TRUNK visible test]", trunkMesh.visible, (trunkMesh.material as any).transparent);
       trunkMesh.renderOrder = 30;
       trunkMesh.frustumCulled = false;
-      applyTrunkDebug();
-      trunkHelper = new THREE.BoxHelper(trunkMesh, 0xff00ff);
-      (trunkHelper.material as THREE.Material).depthTest = false;
-      trunkHelper.renderOrder = 31;
-      scene.add(trunkHelper);
-      trunkMesh.getWorldPosition(trunkWorldPos);
-      console.log("[TRUNK scale]", trunkMesh.scale.toArray());
-      console.log("[TRUNK world]", trunkWorldPos.toArray());
       const trunkBox = new THREE.Box3().setFromObject(trunkMesh);
       const trunkSize = new THREE.Vector3();
       trunkBox.getSize(trunkSize);
-      console.log("[TRUNK size]", trunkSize.toArray());
-      trunkMarker = new THREE.Mesh(
-        new THREE.SphereGeometry(0.05, 12, 12),
-        new THREE.MeshBasicMaterial({ color: 0xff00ff, depthTest: false })
-      );
-      trunkMarker.renderOrder = 32;
-      trunkMarker.position.copy(trunkWorldPos);
-      scene.add(trunkMarker);
     }
 
     const star = findByName(model, "group1533398606") as THREE.Mesh | null;
@@ -662,7 +572,7 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
     if (wick) addCandleFlames(wick, decoGroup);
 
     frameObject();
-  } catch (e) {
+  } else {
     // If no model is present yet, show a placeholder cone
     const placeholder = new THREE.Mesh(
       new THREE.ConeGeometry(1, 2.4, 10),
@@ -710,7 +620,6 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
     });
     snowLayers.push(layer);
     scene.add(layer.points);
-    envObjects.push(layer.points);
   }
 
   // Load gift model
@@ -791,142 +700,6 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
     giftVisible = false;
     giftGroup.visible = false;
   };
-
-  // Debug overlay: toggled with "d"
-  function setDebug(on: boolean) {
-    debugVisible = on;
-    for (const h of debugHelpers) {
-      h.visible = debugVisible;
-    }
-    if (debugVisible) updateDebugHelpers();
-  }
-
-  // Build debug helpers
-  function makeLabel(text: string, pos: THREE.Vector3): LabelHandle {
-    const canvas = document.createElement("canvas");
-    canvas.width = 256; canvas.height = 64;
-    const ctx = canvas.getContext("2d");
-    if (ctx) {
-      ctx.fillStyle = "rgba(0,0,0,0.7)";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.fillStyle = "#ffeaa7";
-      ctx.font = "16px 'Segoe UI'";
-      ctx.fillText(text, 10, 24);
-    }
-    const texture = new THREE.CanvasTexture(canvas);
-    texture.colorSpace = THREE.SRGBColorSpace;
-    const spriteMat = new THREE.SpriteMaterial({ map: texture, depthTest: false, depthWrite: false, transparent: true });
-    const sprite = new THREE.Sprite(spriteMat);
-    sprite.scale.set(0.9, 0.25, 1);
-    sprite.position.copy(pos).add(new THREE.Vector3(0.2, 0.3, 0));
-    debugHelpers.push(sprite);
-    scene.add(sprite);
-    return { sprite, canvas, ctx, texture };
-  }
-
-  function updateLabel(label: LabelHandle, text: string, pos: THREE.Vector3) {
-    if (label.ctx) {
-      label.ctx.clearRect(0, 0, label.canvas.width, label.canvas.height);
-      label.ctx.fillStyle = "rgba(0,0,0,0.7)";
-      label.ctx.fillRect(0, 0, label.canvas.width, label.canvas.height);
-      label.ctx.fillStyle = "#ffeaa7";
-      label.ctx.font = "16px 'Segoe UI'";
-      label.ctx.fillText(text, 10, 24);
-      label.texture.needsUpdate = true;
-    }
-    label.sprite.position.copy(pos).add(new THREE.Vector3(0.2, 0.3, 0));
-  }
-
-  function updateLine(line: THREE.Line, a: THREE.Vector3, b: THREE.Vector3) {
-    const pos = line.geometry.getAttribute("position") as THREE.BufferAttribute;
-    pos.setXYZ(0, a.x, a.y, a.z);
-    pos.setXYZ(1, b.x, b.y, b.z);
-    pos.needsUpdate = true;
-    line.geometry.computeBoundingSphere();
-  }
-
-  const addDebugHelpers = () => {
-    // Crosshair at look target
-    const crossGeo = new THREE.BufferGeometry().setFromPoints([
-      new THREE.Vector3(-0.3, 0, 0),
-      new THREE.Vector3(0.3, 0, 0),
-      new THREE.Vector3(0, -0.3, 0),
-      new THREE.Vector3(0, 0.3, 0),
-    ]);
-    const crossMat = new THREE.LineBasicMaterial({ color: 0xffdd55, depthTest: false });
-    const cross = new THREE.LineSegments(crossGeo, crossMat);
-    cross.position.copy(lookTarget);
-    debugHelpers.push(cross);
-    scene.add(cross);
-
-    const crossLabel = makeLabel(
-      `Target (${lookTarget.x.toFixed(2)}, ${lookTarget.y.toFixed(2)}, ${lookTarget.z.toFixed(2)})`,
-      lookTarget
-    );
-
-    // Ground line
-    const groundMat = new THREE.LineBasicMaterial({ color: 0x99c2ff, depthTest: false });
-    const groundGeo = new THREE.BufferGeometry().setFromPoints([
-      new THREE.Vector3(-5, stage.groundY, 0),
-      new THREE.Vector3(5, stage.groundY, 0),
-    ]);
-    const groundLine = new THREE.Line(groundGeo, groundMat);
-    debugHelpers.push(groundLine);
-    scene.add(groundLine);
-    const groundLabel = makeLabel(
-      `Ground y=${stage.groundY.toFixed(2)}`,
-      new THREE.Vector3(stage.treeX, stage.groundY + 0.15, stage.treeZ)
-    );
-
-    // Safe frame (top margin)
-    const frameMat = new THREE.LineBasicMaterial({ color: 0xff88aa, depthTest: false });
-    const frameGeo = new THREE.BufferGeometry().setFromPoints([
-      new THREE.Vector3(-1, 1.6, -2),
-      new THREE.Vector3(1, 1.6, -2),
-    ]);
-    const safeFrame = new THREE.Line(frameGeo, frameMat);
-    debugHelpers.push(safeFrame);
-    scene.add(safeFrame);
-    const safeLabel = makeLabel("Tree top", new THREE.Vector3(1, 1.6, -2));
-
-    // Bounding box helper for tree
-    const boxHelper = new THREE.BoxHelper(treeGroup, 0x55ff88);
-    (boxHelper.material as THREE.Material).depthTest = false;
-    debugHelpers.push(boxHelper);
-    scene.add(boxHelper);
-
-    debugHandles = { cross, crossLabel, groundLine, groundLabel, safeFrame, safeLabel, boxHelper };
-    // Hide by default
-    debugHelpers.forEach((h) => (h.visible = false));
-  };
-
-  function updateDebugHelpers() {
-    if (!debugHandles) return;
-    updateTreeBounds();
-    debugHandles.cross.position.copy(lookTarget);
-    updateLabel(
-      debugHandles.crossLabel,
-      `Target (${lookTarget.x.toFixed(2)}, ${lookTarget.y.toFixed(2)}, ${lookTarget.z.toFixed(2)})`,
-      lookTarget
-    );
-    const groundLeft = new THREE.Vector3(stage.treeX - 2, stage.groundY, stage.treeZ);
-    const groundRight = new THREE.Vector3(stage.treeX + 2, stage.groundY, stage.treeZ);
-    updateLine(debugHandles.groundLine, groundLeft, groundRight);
-    updateLabel(
-      debugHandles.groundLabel,
-      `Ground y=${stage.groundY.toFixed(2)}`,
-      new THREE.Vector3(stage.treeX, stage.groundY + 0.15, stage.treeZ)
-    );
-    const topY = treeBounds.center.y + treeBounds.size.y * 0.5;
-    const safeY = topY + treeBounds.size.y * 0.05;
-    const safeLeft = new THREE.Vector3(stage.treeX - 0.6, safeY, stage.treeZ);
-    const safeRight = new THREE.Vector3(stage.treeX + 0.6, safeY, stage.treeZ);
-    updateLine(debugHandles.safeFrame, safeLeft, safeRight);
-    updateLabel(debugHandles.safeLabel, "Tree top", new THREE.Vector3(stage.treeX + 0.2, safeY, stage.treeZ));
-    debugHandles.boxHelper.update();
-  }
-
-  addDebugHelpers();
 
   const update = (dt: number) => {
     // dt is seconds
@@ -1014,16 +787,6 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
       layer.update(dt);
     }
 
-    if (debugVisible) updateDebugHelpers();
-    if (trunkHelper) trunkHelper.update();
-    if (trunkMarker && trunkMesh) {
-      trunkMesh.getWorldPosition(trunkWorldPos);
-      trunkMarker.position.copy(trunkWorldPos);
-    }
-    if (!treeGroup.visible) {
-      console.warn("[BUG] treeGroup not visible");
-      treeGroup.visible = true;
-    }
   };
 
   return {
@@ -1043,32 +806,12 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
     showGift,
     hideGift,
     setSize,
-    toggleDebug: setDebug,
-    toggleTrunkDoubleSide: () => {
-      trunkDoubleSide = !trunkDoubleSide;
-      applyTrunkDebug();
-      console.log("[TRUNK debug] doubleSide", trunkDoubleSide);
-    },
-    toggleTrunkDepthTest: () => {
-      trunkNoDepthTest = !trunkNoDepthTest;
-      applyTrunkDebug();
-      console.log("[TRUNK debug] depthTest", !trunkNoDepthTest);
-    },
-    toggleEnv,
     setRevealFactor: (t: number) => {
       revealFactor = THREE.MathUtils.clamp(t, 0, 1);
     },
-    getDebugState: () => {
+    getTreeMetrics: () => {
       updateTreeBounds();
       return {
-        camera: {
-          x: camera.position.x,
-          y: camera.position.y,
-          z: camera.position.z,
-          fov: camera.fov,
-          aspect: camera.aspect,
-        },
-        target: { x: lookTarget.x, y: lookTarget.y, z: lookTarget.z },
         treeBounds: {
           center: { x: treeBounds.center.x, y: treeBounds.center.y, z: treeBounds.center.z },
           size: { x: treeBounds.size.x, y: treeBounds.size.y, z: treeBounds.size.z },

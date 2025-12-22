@@ -33,7 +33,7 @@ jobs:
       - name: Build
         env:
           # Set this to /<repo-name>/ in repo settings or override here
-          GITHUB_PAGES_BASE: ${{ vars.GITHUB_PAGES_BASE }}
+          PAGES_BASE: ${{ vars.PAGES_BASE }}
         run: npm run build
 
       - name: Upload artifact

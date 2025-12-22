@@ -60,7 +60,7 @@ Then edit `src/config/assets.ts` if you change the filename.
 
 ## GitHub Pages deploy
 This repo includes a GitHub Actions workflow that builds and deploys to GitHub Pages on every push to `main`.
-Set `GITHUB_PAGES_BASE` to `/<repo-name>/` in repo variables (or override in the workflow) when using project pages.
+Set `PAGES_BASE` to `/<repo-name>/` in repo variables (or override in the workflow) when using project pages.
 
 ## Credits / Licenses
 You must ensure the 3D model license is compatible with your use (CC0/CC-BY/etc.) and include attribution if required.

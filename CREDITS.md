@@ -13,5 +13,4 @@
 - Oleo Script (Google Fonts) — SIL Open Font License
 
 ## Imagery
-- Mountain backdrop: “dmitriy-k-8ZEWjx3Pr7s” by Dmitriy K (Unsplash License)
-- Vite (MIT)
+- Backgrounds based on mountain backdrop: “dmitriy-k-8ZEWjx3Pr7s” by Dmitriy K (Unsplash License)

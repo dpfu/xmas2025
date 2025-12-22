@@ -1,10 +1,10 @@
 # Academic Tree Gifts 🎄 (Mini-Experience)
 
 A tiny, client-side web mini-experience for a digital holiday greeting:
-- Hover to gently rotate a low-poly 3D Christmas tree
-- Click + drag to “shake” it
-- A gift appears → open it → reveal a humorous academic “voucher”
-- Download the voucher as a PNG (generated locally)
+- Drag to spin the low-poly tree
+- Reveal sequence: camera + background parallax
+- A present drops, lands, and can be opened
+- Vouchers render locally and can be downloaded as PNGs
 
 ## Tech
 - Three.js (3D)
@@ -29,9 +29,16 @@ npm test
 npm run test:watch
 ```
 
-Debug:
-- Add `?debug=1` to the URL to enable the debug panel and persist it in localStorage.
-- Press `i` to toggle the info panel, `d` to toggle in-scene helpers.
+## Assets
+Main assets live in `public/assets`:
+- `tree-ed.glb` — tree model
+- `gift.glb` — present model
+- `bg.jpg` — default background
+- `bg-portrait.jpg` — portrait background
+- `o-christmas-tree.mp3` — music
+- `sfx_axe_tree_leaves.mp3`, `sfx_christmas-whoosh.mp3` — SFX
+
+Unused/legacy assets are moved to `public/assets/_unused` to keep the active set lean.
 
 ## Add your 3D tree model
 Put a GLB/GLTF model here:
@@ -43,6 +50,7 @@ Then edit `src/config/assets.ts` if you change the filename.
 
 ## GitHub Pages deploy
 This repo includes a GitHub Actions workflow that builds and deploys to GitHub Pages on every push to `main`.
+Set `GITHUB_PAGES_BASE` to `/<repo-name>/` in repo variables (or override in the workflow) when using project pages.
 
 ## Credits / Licenses
 You must ensure the 3D model license is compatible with your use (CC0/CC-BY/etc.) and include attribution if required.

@@ -72,13 +72,13 @@ function playSfx(audio: HTMLAudioElement | null) {
 
 
 function showModal(v: Voucher) {
-  const svg = voucherToSVG(v, { width: 1200, height: 675 });
+  const svg = voucherToSVG(v, { width: 900, height: 507 });
   voucherEl.innerHTML = `
-    <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:8px;">
-      <strong style="font-size:14px;">Your voucher</strong>
-      <span style="font-size:12px;opacity:0.7;">${new Date().toLocaleDateString()}</span>
+    <div class="voucher-header">
+      <strong class="voucher-title">Your voucher</strong>
+      <span class="voucher-date">${new Date().toLocaleDateString()}</span>
     </div>
-    <div style="border-radius:12px;overflow:hidden;border:1px solid #e6e6ef;">
+    <div class="voucher-preview">
       ${svg}
     </div>
   `;

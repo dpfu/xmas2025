@@ -6,8 +6,8 @@ export type BackgroundController = {
 
 export function initBackground(bgEl: HTMLElement | null, baseUrl: string): BackgroundController {
   if (bgEl) {
-    bgEl.style.setProperty("--bgImage", `url("${baseUrl}assets/bg.jpg")`);
-    bgEl.style.setProperty("--bgImagePortrait", `url("${baseUrl}assets/bg-portrait.jpg")`);
+    bgEl.style.setProperty("--bgImage", `url("${baseUrl}assets/bg-with-floor.jpg")`);
+    bgEl.style.setProperty("--bgImagePortrait", `url("${baseUrl}assets/bg-with-floor.jpg")`);
   }
 
   const applyReveal = (e: number) => {

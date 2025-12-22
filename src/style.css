@@ -1,10 +1,15 @@
 :root {
   font-family: "Oleo Script", system-ui, -apple-system, sans-serif;
   --bg-x: 50%;
-  --bg-y-base: 50%;
+  --bg-y-base: 18%;
+  --bg-y-min: 8%;
+  --bg-y-max: 32%;
   --bg-y-offset: 0%;
   --bg-scale-base: 1;
   --bg-scale-offset: 0;
+  --bg-inset: 0vh;
+  --bg-poster-scale: 1;
+  --bg-poster-offset: 0%;
   --bgImage: none;
   --bgImagePortrait: none;
 }
@@ -27,12 +32,30 @@ html, body {
 #bg::before {
   content: "";
   position: absolute;
-  inset: -12vh;
+  inset: var(--bg-inset);
   background-image: var(--bgImage, none);
   background-repeat: no-repeat;
-  background-position: var(--bg-x) calc(var(--bg-y-base) + var(--bg-y-offset));
+  background-position:
+    var(--bg-x)
+    clamp(var(--bg-y-min), calc(var(--bg-y-base) + var(--bg-y-offset)), var(--bg-y-max));
   background-size: cover;
-  transform: scale(calc(var(--bg-scale-base) + var(--bg-scale-offset)));
+  filter: blur(14px) brightness(0.75);
+  opacity: 0.8;
+  transform: scale(calc(var(--bg-scale-base) + var(--bg-scale-offset) + 0.06));
+  transform-origin: center;
+  will-change: transform, opacity;
+}
+#bg::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: var(--bgImage, none);
+  background-repeat: no-repeat;
+  background-position:
+    var(--bg-x)
+    clamp(var(--bg-y-min), calc(var(--bg-y-base) + var(--bg-y-offset) + var(--bg-poster-offset)), var(--bg-y-max));
+  background-size: contain;
+  transform: scale(var(--bg-poster-scale));
   transform-origin: center;
   will-change: transform;
 }
@@ -55,15 +78,27 @@ body::before {
     linear-gradient(180deg, rgba(0,0,0,0.12), rgba(0,0,0,0.28));
 }
 
-@media (max-width: 520px) and (orientation: portrait) {
+@media (orientation: portrait) {
   :root {
     --bg-x: 50%;
     --bg-y-base: 12%;
-    --bg-scale-base: 0.82;
+    --bg-y-min: 2%;
+    --bg-y-max: 34%;
+    --bg-scale-base: 1;
+    --bg-inset: -8vh;
+    --bg-poster-scale: 1.02;
+    --bg-poster-offset: -2%;
     --bgImage: var(--bgImagePortrait);
   }
-  #bg::before {
-    inset: -30vh;
+}
+
+@media (orientation: landscape) {
+  :root {
+    --bg-y-base: 14%;
+    --bg-y-min: 6%;
+    --bg-y-max: 28%;
+    --bg-poster-scale: 0.96;
+    --bg-poster-offset: -3%;
   }
 }
 

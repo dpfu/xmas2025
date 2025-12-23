@@ -7,18 +7,19 @@ import { CAMERA, GLOW } from "../config/tuning";
 import { createSceneLights } from "./lights";
 import { createBloomPipeline } from "./postprocess";
 import { loadTreeModel, updateTreeEffects, type TreeEffects } from "./tree";
-import { loadGiftModel } from "./gift";
+import { loadGiftPrototypes, type GiftPrototype } from "./gift";
+import { loadAnvilPrototype, type AnvilPrototype } from "./anvil";
 
 export type SceneHandles = {
   renderer: THREE.WebGLRenderer;
   scene: THREE.Scene;
   camera: THREE.PerspectiveCamera;
   treeGroup: THREE.Group;
-  giftGroup: THREE.Group;
   render: () => void;
   setSpinVelocity: (v: number) => void;
-  showGift: () => void;
-  hideGift: () => void;
+  createGiftInstance: () => { object: THREE.Object3D; size: THREE.Vector3 } | null;
+  createAnvilInstance: () => { object: THREE.Object3D; size: THREE.Vector3 } | null;
+  crushTree: () => void;
   setSize: (w: number, h: number) => void;
   setRevealFactor?: (t: number) => void;
   getTreeMetrics?: () => {
@@ -284,15 +285,6 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
     frameObject();
   }
 
-  const giftGroup = new THREE.Group();
-  giftGroup.position.set(stage.treeX, stage.groundY + 0.18, stage.treeZ);
-  giftGroup.visible = false;
-  scene.add(giftGroup);
-
-  const giftLight = new THREE.PointLight(0xfff2cc, 0, 5);
-  giftLight.position.set(0, 1.2, 1.2);
-  scene.add(giftLight);
-
   // Snow layers (respect reduced motion)
   const prefersReducedMotion =
     typeof window !== "undefined" &&
@@ -324,16 +316,34 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
   }
 
   // Load gift model
-  let giftHalfHeight = await loadGiftModel(loader, giftGroup);
+  const giftPrototypes: GiftPrototype[] = await loadGiftPrototypes(loader);
+  let giftIndex = 0;
+  const anvilPrototype: AnvilPrototype = await loadAnvilPrototype(loader);
 
-  // gift placement synced to tree position
-  function updateGiftAnchor() {
-    giftGroup.position.copy(new THREE.Vector3(stage.treeX, stage.groundY, stage.treeZ)).add(
-      new THREE.Vector3(STAGE.giftOffset.x, STAGE.giftOffset.y, STAGE.giftOffset.z)
-    );
-    giftGroup.position.y = stage.groundY + giftHalfHeight;
-  }
-  updateGiftAnchor();
+  const createGiftInstance = () => {
+    if (giftPrototypes.length === 0) return null;
+    const proto = giftPrototypes[giftIndex % giftPrototypes.length];
+    giftIndex += 1;
+    const instance = proto.root.clone(true);
+    instance.visible = true;
+    instance.traverse((child) => (child.visible = true));
+    return { object: instance, size: proto.size.clone() };
+  };
+
+  const createAnvilInstance = () => {
+    if (!anvilPrototype?.root) return null;
+    const instance = anvilPrototype.root.clone(true);
+    instance.visible = true;
+    instance.traverse((child) => (child.visible = true));
+    return { object: instance, size: anvilPrototype.size.clone() };
+  };
+
+  let crushTarget = 1;
+  let crushXZ = 1;
+  const crushTree = () => {
+    crushTarget = 0.2;
+    crushXZ = 1.08;
+  };
 
   const setSize = (w: number, h: number) => {
     camera.aspect = w / h;
@@ -351,19 +361,8 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
     if (treeGroup.children.length > 0) frameObject();
   };
 
-  let giftVisible = false;
   const setSpinVelocity = (v: number) => {
     yawVel = v;
-  };
-
-  const showGift = () => {
-    giftVisible = true;
-    giftGroup.visible = true;
-  };
-
-  const hideGift = () => {
-    giftVisible = false;
-    giftGroup.visible = false;
   };
 
   const update = (dt: number) => {
@@ -391,12 +390,11 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
     decoGroup.rotation.x = swayX * 1.15;
     decoGroup.rotation.z = swayZ * 1.15;
 
-    if (giftVisible) {
-      giftLight.intensity = THREE.MathUtils.lerp(giftLight.intensity, 3.0, dt * 3.5);
-    } else {
-      camera.position.lerpVectors(baseCamPos, revealZoomPos, revealFactor);
-      giftLight.intensity = THREE.MathUtils.lerp(giftLight.intensity, 0, dt * 3);
-    }
+    treeGroup.scale.x = THREE.MathUtils.lerp(treeGroup.scale.x, crushXZ, dt * 3.5);
+    treeGroup.scale.y = THREE.MathUtils.lerp(treeGroup.scale.y, crushTarget, dt * 3.5);
+    treeGroup.scale.z = THREE.MathUtils.lerp(treeGroup.scale.z, crushXZ, dt * 3.5);
+
+    camera.position.lerpVectors(baseCamPos, revealZoomPos, revealFactor);
 
     camera.lookAt(lookTarget);
 
@@ -423,11 +421,11 @@ export async function createScene(canvas: HTMLCanvasElement): Promise<SceneHandl
     scene,
     camera,
     treeGroup,
-    giftGroup,
     render: bloomPipeline.render,
     setSpinVelocity,
-    showGift,
-    hideGift,
+    createGiftInstance,
+    createAnvilInstance,
+    crushTree,
     setSize,
     setRevealFactor: (t: number) => {
       revealFactor = THREE.MathUtils.clamp(t, 0, 1);

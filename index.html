@@ -11,20 +11,24 @@
   <body>
     <div id="bg"></div>
     <div id="app">
-    <div id="hint" class="hidden">Spin the tree</div>
-    <canvas id="scene"></canvas>
+      <div id="hint" class="hidden">Spin the tree</div>
+      <canvas id="scene"></canvas>
+      <div id="flash" class="hidden" aria-hidden="true"></div>
 
       <div id="revealOverlay" class="hidden" aria-live="polite">
         <div class="card">
-          <p>A present appears.</p>
+          <p id="revealText">A present appears.</p>
         </div>
       </div>
 
-      <div id="modal" class="hidden" role="dialog" aria-modal="true">
-        <div id="voucher">
-          <!-- Voucher HTML will be injected -->
+      <div id="greetingModal" class="hidden" role="dialog" aria-modal="true">
+        <div class="greeting-shell">
+          <div class="greeting-header">
+            <div class="greeting-title" id="greetingTitle">🎄 Christmas</div>
+            <button class="greeting-close" id="closeGreeting" type="button" aria-label="Close greeting">Close</button>
+          </div>
+          <div class="greeting-body" id="greetingBody"></div>
         </div>
-        <button id="closeModal">Close</button>
       </div>
     </div>
     <script type="module" src="/src/main.ts"></script>

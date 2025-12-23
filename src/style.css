@@ -118,53 +118,6 @@ body::before {
 #hint.hidden { opacity: 0; pointer-events: none; }
 #hint.visible { opacity: 1; }
 
-#modal.hidden { display: none; }
-#modal {
-  position: absolute; inset: 0; z-index: 5;
-  display: grid; place-items: center;
-  background: rgba(0,0,0,0.5);
-  padding: 16px;
-}
-#voucher {
-  width: min(560px, 92vw);
-  max-height: 80svh;
-  display: grid;
-  gap: 8px;
-  background: white;
-  border-radius: 14px;
-  padding: 12px;
-  box-shadow:
-    0 18px 40px rgba(0,0,0,0.35),
-    0 4px 10px rgba(0,0,0,0.25);
-}
-#voucher .voucher-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-}
-#voucher .voucher-title {
-  font-size: 14px;
-}
-#voucher .voucher-date {
-  font-size: 12px;
-  opacity: 0.7;
-}
-#voucher .voucher-preview {
-  border-radius: 12px;
-  overflow: hidden;
-  border: 1px solid #e6e6ef;
-}
-#voucher svg {
-  width: 100%;
-  height: auto;
-  display: block;
-}
-#closeModal {
-  margin-top: 10px;
-  border: none; background: #0f172a; color: white;
-  padding: 8px 12px; border-radius: 8px; cursor: pointer;
-}
 
 #revealOverlay.hidden { display: none; }
 #revealOverlay {
@@ -181,6 +134,75 @@ body::before {
   font-size: 15px;
   letter-spacing: 0.01em;
   box-shadow: 0 20px 40px rgba(0,0,0,0.35);
+}
+
+#flash.hidden { display: none; }
+#flash {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  pointer-events: none;
+  background: rgba(255,255,255,0.85);
+  animation: screenFlash 0.6s ease;
+}
+
+@keyframes screenFlash {
+  0% { opacity: 0; }
+  15% { opacity: 0.9; }
+  100% { opacity: 0; }
+}
+
+#greetingModal.hidden { display: none; }
+#greetingModal {
+  position: absolute; inset: 0; z-index: 7;
+  display: grid; place-items: center;
+  background: radial-gradient(circle at 50% 20%, rgba(15,23,42,0.4), rgba(2,6,23,0.88));
+  padding: 18px;
+  backdrop-filter: blur(8px);
+  opacity: 0;
+  transition: opacity 0.25s ease;
+}
+#greetingModal.visible { opacity: 1; }
+#greetingModal .greeting-shell {
+  width: min(640px, 92vw);
+  display: grid;
+  gap: 16px;
+  padding: 22px;
+  border-radius: 22px;
+  background: rgba(7, 11, 20, 0.72);
+  border: 1px solid rgba(255,255,255,0.16);
+  box-shadow: 0 26px 60px rgba(0,0,0,0.55);
+  color: #f8fafc;
+  transform: translateY(6px) scale(0.98);
+  transition: transform 0.25s ease;
+}
+#greetingModal.visible .greeting-shell {
+  transform: translateY(0) scale(1);
+}
+#greetingModal .greeting-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+#greetingModal .greeting-title {
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+#greetingModal .greeting-close {
+  border: 1px solid rgba(255,255,255,0.22);
+  background: rgba(15,23,42,0.7);
+  color: #f8fafc;
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  cursor: pointer;
+}
+#greetingModal .greeting-body {
+  font-size: 18px;
+  line-height: 1.5;
+  color: rgba(226,232,240,0.95);
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -16,6 +16,9 @@ type GiftBody = {
   hovered: boolean;
   opening: boolean;
   baseScale: number;
+  openTime: number;
+  openStartY: number;
+  openSpin: number;
 };
 
 export type GiftPileController = {
@@ -92,6 +95,9 @@ export function createGiftPileController(opts: {
       hovered: false,
       opening: false,
       baseScale: instance.object.scale.x,
+      openTime: 0,
+      openStartY: instance.object.position.y,
+      openSpin: (Math.random() * 0.6 + 0.4) * (Math.random() > 0.5 ? 1 : -1),
     };
 
     pileGroup.add(instance.object);
@@ -127,9 +133,15 @@ export function createGiftPileController(opts: {
     const toRemove: GiftBody[] = [];
     for (const body of bodies) {
       if (body.opening) {
-        const nextScale = THREE.MathUtils.lerp(body.object.scale.x, 0, dt * 10);
-        body.object.scale.setScalar(nextScale);
-        if (nextScale < 0.05) {
+        body.openTime += dt;
+        const t = Math.min(body.openTime / 0.32, 1);
+        const ease = 1 - Math.pow(1 - t, 3);
+        const scale = body.baseScale * (1 - ease);
+        body.object.scale.setScalar(Math.max(scale, 0.001));
+        body.object.position.y = body.openStartY + 0.18 * ease;
+        body.object.rotation.y += body.openSpin * dt * 6;
+        body.object.rotation.x += body.openSpin * dt * 3;
+        if (t >= 1) {
           pileGroup.remove(body.object);
           toRemove.push(body);
         }
@@ -220,6 +232,8 @@ export function createGiftPileController(opts: {
     if (!body || body.opening) return null;
     body.opening = true;
     body.hovered = false;
+    body.openTime = 0;
+    body.openStartY = body.object.position.y;
     return findGreetingIndex(body.object);
   };
 

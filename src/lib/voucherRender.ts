@@ -55,7 +55,9 @@ export function voucherToSVG(v: Voucher, opts?: { width?: number; height?: numbe
       <feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#000" flood-opacity="0.08"/>
     </filter>
     <style>
-      text { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; }
+      .title { font-family: 'Palatino Linotype', 'Book Antiqua', Palatino, serif; }
+      .body { font-family: 'Avenir Next', 'Helvetica Neue', Helvetica, Arial, sans-serif; }
+      .stamp-text { font-family: 'Avenir Next', 'Helvetica Neue', Helvetica, Arial, sans-serif; letter-spacing: 0.08em; }
     </style>
   </defs>
 
@@ -78,22 +80,22 @@ export function voucherToSVG(v: Voucher, opts?: { width?: number; height?: numbe
   <rect x="80" y="${height - 210}" width="${width - 160}" height="18" rx="9" fill="#0f5132" opacity="0.14"/>
 
   <!-- header -->
-  <text x="90" y="150" font-size="54" font-weight="700" fill="url(#foil)" filter="url(#softTitleShadow)">${safe(v.title)}</text>
-  <text x="90" y="210" font-size="30" fill="#333">${safe(v.subtitle)}</text>
+  <text class="title" x="90" y="150" font-size="52" font-weight="700" fill="url(#foil)" filter="url(#softTitleShadow)">${safe(v.title)}</text>
+  <text class="body" x="90" y="208" font-size="28" fill="#2d2d2d">${safe(v.subtitle)}</text>
   <line x1="90" y1="240" x2="${width-90}" y2="240" stroke="#0f5132" stroke-width="2" opacity="0.35"/>
 
   <!-- stamp -->
   <g filter="url(#ink)" transform="translate(${width-380}, 120) rotate(-10)">
     <rect x="0" y="0" width="280" height="84" rx="14" fill="#7a1f2b"/>
-    <text x="140" y="55" text-anchor="middle" font-size="34" font-weight="700" fill="#fff">${safe(v.stamp)}</text>
+    <text class="stamp-text" x="140" y="55" text-anchor="middle" font-size="32" font-weight="700" fill="#fff">${safe(v.stamp)}</text>
   </g>
 
   <!-- fine print -->
-  <text x="90" y="${height-170}" font-size="22" fill="#444">
+  <text class="body" x="90" y="${height-170}" font-size="22" fill="#414141">
     ${safe(v.fineprint)}
   </text>
 
-  <text x="90" y="${height-110}" font-size="18" fill="#777">
+  <text class="body" x="90" y="${height-110}" font-size="18" fill="#6b7280">
     Generated locally • No tracking • Happy holidays
   </text>
 

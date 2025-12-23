@@ -142,9 +142,9 @@ function playSadJingle() {
           "STOP",
         ],
         greetings: [
-          { title: "🎄 Weihnachten", body: "„Zu Weihnachten wünsche ich dir Erfolg bei dem, was du tust, und Freude an dem, wie du es tust.“" },
-          { title: "✨ Neujahr", body: "„Für das neue Jahr wünsche ich dir gute Begegnungen, die Kraft geben, und genug Gelassenheit für alles andere.“" },
-          { title: "🤍 Persönlich", body: "„Privat wünsche ich dir Gesundheit, Gelassenheit und ein Lachen zur richtigen Zeit.“" },
+          { title: "🎄 Weihnachten", body: "Zu Weihnachten: Erfolg bei dem, was getan wird,\nund Freude an dem, wie es getan wird." },
+          { title: "✨ Neujahr", body: "Für das neue Jahr: gute Begegnungen, die Kraft geben,\nund genug Gelassenheit für alles andere." },
+          { title: "🤍 Persönlich", body: "Privat: Gesundheit, Gelassenheit\nund ein Lachen zur richtigen Zeit." },
         ],
       }
     : {

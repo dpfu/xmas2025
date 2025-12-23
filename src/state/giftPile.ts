@@ -45,9 +45,9 @@ export function createGiftPileController(opts: {
 
   const pickDropPoint = (metrics: TreeMetrics) => {
     const size = metrics.treeBounds.size;
-    const baseRadius = Math.max(size.x, size.z) * 0.55 + 0.4;
-    const minRadius = Math.max(size.x, size.z) * 0.35 + 0.2;
-    const frontBias = Math.max(size.z, 0.6) * 0.32;
+    const baseRadius = Math.max(size.x, size.z) * 0.45 + 0.2;
+    const minRadius = Math.max(size.x, size.z) * 0.25 + 0.1;
+    const frontBias = Math.max(size.z, 0.6) * 0.18;
     for (let attempt = 0; attempt < DROP_ATTEMPTS; attempt += 1) {
       const angle = (Math.random() * 0.9 - 0.45) * Math.PI;
       const radius = minRadius + Math.random() * (baseRadius - minRadius);

@@ -133,7 +133,7 @@ function playSadJingle() {
         closeGreeting: "Schließen",
         closeGreetingAria: "Gruß schließen",
         hintSequence: [
-          "Dreh den Baum",
+          "Dreh ihn doch!",
           "Vielleicht noch mal?",
           "Aller guten Dinge sind drei",
           "Besser jetzt aufhören",
@@ -176,12 +176,14 @@ function playSadJingle() {
 
   const hintSequence = copy.hintSequence;
   const greetings = copy.greetings;
+  const warningStartIndex = 3;
   let storyIndex = 0;
   let giftCount = 0;
   let nextIdleHint = hintSequence[0];
   let nextDrop: DropKind = "GIFT";
   let anvilTriggered = false;
   let allowGiftDrops = true;
+  let nextHintAt = performance.now();
 
   const showGreeting = (index: number) => {
     const greeting = greetings[index];
@@ -197,12 +199,24 @@ function playSadJingle() {
     window.setTimeout(() => greetingModal.classList.add("hidden"), 220);
   };
 
-  closeGreeting.addEventListener("click", hideGreeting);
+  closeGreeting.addEventListener("click", () => {
+    hideGreeting();
+    delayHint(1600);
+    if (phase === "IDLE") scheduleHint();
+  });
   greetingModal.addEventListener("click", (event) => {
-    if (event.target === greetingModal) hideGreeting();
+    if (event.target === greetingModal) {
+      hideGreeting();
+      delayHint(1600);
+      if (phase === "IDLE") scheduleHint();
+    }
   });
   document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") hideGreeting();
+    if (event.key === "Escape") {
+      hideGreeting();
+      delayHint(1600);
+      if (phase === "IDLE") scheduleHint();
+    }
   });
 
   startMusic();
@@ -229,10 +243,16 @@ function playSadJingle() {
     if (!msg) {
       hint.classList.remove("visible");
       hint.classList.add("hidden");
+      hint.classList.remove("danger");
       hint.textContent = "";
       return;
     }
     hint.textContent = msg;
+    if (storyIndex >= warningStartIndex) {
+      hint.classList.add("danger");
+    } else {
+      hint.classList.remove("danger");
+    }
     hint.classList.remove("hidden");
     hint.classList.add("visible");
   };
@@ -241,8 +261,12 @@ function playSadJingle() {
     if (hintTimer) window.clearTimeout(hintTimer);
     hintTimer = window.setTimeout(() => {
       if (phase === "IDLE" && !isDragging) setHint(nextIdleHint);
-    }, 2600);
+    }, Math.max(0, nextHintAt - performance.now()));
   };
+  const delayHint = (ms: number) => {
+    nextHintAt = Math.max(nextHintAt, performance.now() + ms);
+  };
+  delayHint(storyIndex === 0 ? 3200 : 2200);
   scheduleHint();
 
   const triggerFlash = () => {
@@ -267,6 +291,7 @@ function playSadJingle() {
     lastX = e.clientX;
     lastY = e.clientY;
     setHint(null);
+    if (hintTimer) window.clearTimeout(hintTimer);
   });
 
   canvas.addEventListener("pointerup", () => {
@@ -367,6 +392,8 @@ function playSadJingle() {
       if (nextDrop === "ANVIL") {
         if (anvilDrop.update(dt)) {
           setPhase("IDLE");
+          delayHint(2000);
+          scheduleHint();
         }
       } else if (!allowGiftDrops) {
         storyIndex += 1;
@@ -375,7 +402,8 @@ function playSadJingle() {
           nextDrop = "ANVIL";
         }
         setPhase("IDLE");
-        setHint(nextIdleHint);
+        delayHint(1800);
+        scheduleHint();
       } else if (giftPile.lastDropSettled()) {
         giftCount += 1;
         storyIndex += 1;
@@ -387,7 +415,8 @@ function playSadJingle() {
           nextDrop = "ANVIL";
         }
         setPhase("IDLE");
-        setHint(nextIdleHint);
+        delayHint(1800);
+        scheduleHint();
       }
     }
 

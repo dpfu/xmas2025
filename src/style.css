@@ -119,23 +119,6 @@ body::before {
 #hint.visible { opacity: 1; }
 
 
-#revealOverlay.hidden { display: none; }
-#revealOverlay {
-  position: absolute; inset: 0; z-index: 4;
-  display: grid; place-items: center;
-  background: radial-gradient(circle at center, rgba(255,255,255,0.82), rgba(15,23,42,0.15));
-  pointer-events: none;
-}
-#revealOverlay .card {
-  padding: 14px 18px;
-  border-radius: 12px;
-  background: rgba(15,23,42,0.82);
-  color: white;
-  font-size: 15px;
-  letter-spacing: 0.01em;
-  box-shadow: 0 20px 40px rgba(0,0,0,0.35);
-}
-
 #flash.hidden { display: none; }
 #flash {
   position: absolute;

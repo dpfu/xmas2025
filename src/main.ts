@@ -11,8 +11,6 @@ import { SPIN } from "./config/tuning";
 
 const canvas = document.getElementById("scene") as HTMLCanvasElement;
 const bg = document.getElementById("bg") as HTMLDivElement | null;
-const revealOverlay = document.getElementById("revealOverlay") as HTMLDivElement;
-const revealText = document.getElementById("revealText") as HTMLParagraphElement;
 const hint = document.getElementById("hint") as HTMLDivElement;
 const flash = document.getElementById("flash") as HTMLDivElement;
 const greetingModal = document.getElementById("greetingModal") as HTMLDivElement;
@@ -132,7 +130,6 @@ function playSadJingle() {
     ? {
         lang: "de",
         title: "Akademische Baumgeschenke 🎄",
-        revealText: "Ein Geschenk erscheint.",
         closeGreeting: "Schließen",
         closeGreetingAria: "Gruß schließen",
         hintSequence: [
@@ -153,7 +150,6 @@ function playSadJingle() {
     : {
         lang: "en",
         title: "Academic Tree Gifts 🎄",
-        revealText: "A present appears.",
         closeGreeting: "Close",
         closeGreetingAria: "Close greeting",
         hintSequence: [
@@ -174,7 +170,6 @@ function playSadJingle() {
 
   document.documentElement.lang = copy.lang;
   document.title = copy.title;
-  revealText.textContent = copy.revealText;
   greetingTitle.textContent = copy.greetings[0].title;
   closeGreeting.textContent = copy.closeGreeting;
   closeGreeting.setAttribute("aria-label", copy.closeGreetingAria);
@@ -229,7 +224,6 @@ function playSadJingle() {
   let lastY = 0;
 
   let hintTimer: number | null = null;
-  let overlayTimer: number | null = null;
 
   const setHint = (msg: string | null) => {
     if (!msg) {
@@ -364,11 +358,6 @@ function playSadJingle() {
         } else {
           triggerFlash();
         }
-        revealOverlay.classList.remove("hidden");
-        if (overlayTimer) window.clearTimeout(overlayTimer);
-        overlayTimer = window.setTimeout(() => {
-          revealOverlay.classList.add("hidden");
-        }, 1400);
         resetCooldown(spinState);
       }
     }

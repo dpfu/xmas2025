@@ -129,7 +129,7 @@ function playSadJingle() {
   const copy = getRefCode() === "DE"
     ? {
         lang: "de",
-        title: "Akademische Baumgeschenke 🎄",
+        title: "a tyrolean tree – give it a spin",
         closeGreeting: "Schließen",
         closeGreetingAria: "Gruß schließen",
         hintSequence: [
@@ -149,7 +149,7 @@ function playSadJingle() {
       }
     : {
         lang: "en",
-        title: "Academic Tree Gifts 🎄",
+        title: "a tyrolean tree – give it a spin",
         closeGreeting: "Close",
         closeGreetingAria: "Close greeting",
         hintSequence: [
